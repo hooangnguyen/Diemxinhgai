@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tặng Diễm </title>
+    <!-- Thêm font chữ đẹp, uốn lượn lãng mạn cho thiệp -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Quicksand:wght@400;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+</head>
+
+<body>
+    <div id="skyGroup"></div>
+    <canvas id="starsCanvas"></canvas>
+    <canvas id="terrainCanvas"></canvas>
+    <canvas id="grassCanvas"></canvas>
+
+    <!-- UI Lớp Tương Tác 8/3 -->
+    <div id="ui-layer">
+        <!-- Bước 1: Text đợi chạm lần đầu -->
+        <div id="initial-instruction" class="pulse">Chạm nhẹ vào màn hình nhé...</div>
+
+        <!-- Bước 2: Bức thư hiện ra -->
+        <div id="envelope-container" class="hidden pulse">
+            <img src="love-letter_1f48c.png" alt="Phong thư" id="envelope-img">
+            <div id="instruction-text">Bạn có thư, chạm để mở...</div>
+        </div>
+
+        <!-- Bước 3: Lời chúc -->
+        <div id="message-box" class="hidden">
+            <h1 class="title">Gửi Diễm của tớ,</h1>
+            <p class="content">Mỗi hoàng hôn buông xuống đều đẹp đó nhưng chẳng thể nào rạng rỡ bằng nụ cười của
+                cậu.Chúc
+                cậu ngày 8/3 thật nhiều niềm vui, luôn xinh đẹp và mãi là áng mây hồng bình yên trong tim tớ nhé! ❤️</p>
+        </div>
+    </div>
+
+    <script src="index.js"></script>
+</body>
+
+</html>
