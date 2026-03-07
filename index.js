@@ -15,6 +15,8 @@ let flowerParticles = [];
 let clouds = [];
 let time = 0;
 let clickStep = 0; // 0: Chưa bấm gì, 1: Đã hiện thư, 2: Đã hiện lời chúc
+let isMusicPlaying = false;
+let userMuted = false; // Ngăn nhạc tự phát lại nếu người dùng đã chủ động tắt
 
 function init() {
     window.addEventListener('resize', resize);
@@ -23,8 +25,83 @@ function init() {
     window.addEventListener('click', handleInteraction);
     window.addEventListener('touchstart', handleInteraction, { passive: false });
 
+    // Gọi thử play nhạc ngay khi trang load (Do có autoplay policy, có thể bị chặn)
+    // Tương tác đầu tiên của người dùng (click vào bất kì đâu) sẽ giải quyết vấn đề bị chặn
+    attemptPlayMusic();
+
+    // Nút đóng băng nhạc / phát nhạc
+    const musicToggle = document.getElementById('music-toggle');
+    if (musicToggle) {
+        const handleToggle = (e) => {
+            if (e.type === 'touchstart') {
+                e.preventDefault(); // Ngăn browser gửi thêm event click sau touchstart
+            }
+            e.stopPropagation(); // Phải dừng sự kiện để không ấn nhầm lệnh "chạm màn hình"
+
+            let bgMusic = document.getElementById('bg-music');
+            let musicIcon = document.getElementById('music-icon');
+            let musicText = document.getElementById('music-text');
+
+            if (bgMusic) {
+                if (!bgMusic.paused) {
+                    // Đang phát -> đóng băng
+                    bgMusic.pause();
+                    isMusicPlaying = false;
+                    userMuted = true; // Người dùng đã chủ động tắt
+
+                    if (musicIcon) {
+                        musicIcon.innerText = "🔇";
+                        musicIcon.classList.remove("animate-pulse");
+                    }
+                    if (musicText) musicText.innerText = "Đã tắt nhạc";
+
+                    musicToggle.classList.remove("bg-white/10", "bg-white/20");
+                    musicToggle.classList.add("bg-black/40"); // Nút mờ đi khi đóng băng
+                } else {
+                    // Đang tắt -> phát lại
+                    userMuted = false;
+                    attemptPlayMusic();
+                }
+            }
+        };
+
+        musicToggle.addEventListener('click', handleToggle);
+        musicToggle.addEventListener('touchstart', handleToggle, { passive: false });
+    }
+
     resize();
     requestAnimationFrame(animate);
+}
+
+function attemptPlayMusic() {
+    let bgMusic = document.getElementById('bg-music');
+    let musicIcon = document.getElementById('music-icon');
+    let musicText = document.getElementById('music-text');
+    if (bgMusic) {
+        let playPromise = bgMusic.play();
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                isMusicPlaying = true;
+                if (musicIcon) {
+                    musicIcon.innerText = "🔊";
+                    musicIcon.classList.add("animate-pulse");
+                }
+                if (musicText) musicText.innerText = "Đang phát...";
+                let musicToggle = document.getElementById('music-toggle');
+                if (musicToggle) {
+                    musicToggle.classList.remove("bg-black/40");
+                    musicToggle.classList.add("bg-white/10");
+                }
+            }).catch(err => {
+                console.log("Trình duyệt chặn Autoplay. Đợi người dùng tương tác.", err);
+                isMusicPlaying = false;
+                if (musicIcon) {
+                    musicIcon.innerText = "🎵"; // Biểu tượng mặc định khi chưa rõ trạng thái bị chặn
+                }
+                if (musicText) musicText.innerText = "Nhạc nền";
+            });
+        }
+    }
 }
 
 // Xử lý logic tương tác khi người dùng chạm
@@ -36,6 +113,11 @@ function handleInteraction(e) {
     } else {
         clientX = e.clientX;
         clientY = e.clientY;
+    }
+
+    // Phát nhạc ngay lần chạm đầu tiên (vượt qua cơ chế chặn autoplay của trình duyệt)
+    if (!isMusicPlaying && !userMuted) {
+        attemptPlayMusic();
     }
 
     // Mỗi lần chạm sẽ bung ra các đốm sáng ma thuật
@@ -55,7 +137,7 @@ function handleInteraction(e) {
             // Bật con trỏ pointer events lại cho envelope 
             envelopeEl.style.pointerEvents = 'auto';
             // Đợi 10ms frame kế bắt đầu transition
-            setTimeout(() => envelopeEl.classList.remove('hidden'), 10);
+            setTimeout(() => envelopeEl.classList.remove('is-hidden'), 10);
         }, 500);
 
         clickStep = 1;
@@ -65,14 +147,60 @@ function handleInteraction(e) {
         let envelopeEl = document.getElementById('envelope-container');
         if (envelopeEl.contains(e.target)) {
             // Lần 2 chạm: Ẩn phong thư từ từ, rồi hiện thiệp
-            envelopeEl.classList.add('hidden'); // Kích hoạt CSS làm mờ đi trước
+            envelopeEl.classList.add('is-hidden'); // Kích hoạt CSS làm mờ đi trước
             envelopeEl.style.pointerEvents = 'none'; // Khóa click
 
             setTimeout(() => {
                 envelopeEl.style.display = 'none'; // Quét sạch nhường chỗ
                 let msgBox = document.getElementById('message-box');
                 msgBox.style.display = 'block'; // Setup layout
-                setTimeout(() => msgBox.classList.remove('hidden'), 10); // Kích hoạt fade-in
+
+                setTimeout(() => {
+                    msgBox.classList.remove('is-hidden'); // Kích hoạt fade-in
+
+                    // Hiệu ứng gõ chữ
+                    const titleEl = document.getElementById('msg-title');
+                    const contentEl = document.getElementById('msg-content');
+
+                    const titleText = titleEl.getAttribute('data-text');
+                    const contentText = contentEl.getAttribute('data-text');
+
+                    titleEl.innerHTML = '';
+                    contentEl.innerHTML = '';
+
+                    function typeWriter(element, text, speed, callback) {
+                        let i = 0;
+                        let chars = [...text];
+                        function type() {
+                            if (i < chars.length) {
+                                element.innerHTML += chars[i];
+                                i++;
+                                setTimeout(type, speed);
+                            } else if (callback) {
+                                callback();
+                            }
+                        }
+                        type();
+                    }
+
+                    setTimeout(() => {
+                        typeWriter(titleEl, titleText, 100, () => {
+                            setTimeout(() => {
+                                typeWriter(contentEl, contentText, 45, () => {
+                                    // Sau khi gõ xong lời chúc, thêm nút/dòng chữ "Chạm để đóng" nhấp nháy
+                                    let closeHint = document.createElement('div');
+                                    closeHint.innerHTML = "Chạm để đóng...";
+                                    closeHint.className = "mt-6 text-white/60 text-sm animate-pulse cursor-pointer";
+                                    msgBox.appendChild(closeHint);
+
+                                    // Chuyển sang bước 3: sẵn sàng tắt
+                                    clickStep = 3;
+                                });
+                            }, 400);
+                        });
+                    }, 800); // Đợi message box mờ dần hiện ra rồi gõ (0.8s)
+
+                }, 10);
             }, 800); // Đợi 0.8s cho lá thư mờ hẳn
 
             // Bắn vài đợt sao băng tráng lệ liên tiếp
@@ -81,7 +209,28 @@ function handleInteraction(e) {
                     shootingStars.push(createShootingStar());
                 }, i * 400 + 400); // Chờ lá thư biến mất bắt đầu bắn sao băng
             }
-            clickStep = 2; // Đã kết thúc chuỗi sự kiện mở
+            // Không set clickStep = 2 ở đây nữa vì sẽ set = 3 sau khi gõ xong
+            clickStep = 2; // Tạm gọi là trạng thái đang gõ
+        }
+    } else if (clickStep === 3) {
+        // Chạm lần nữa để ẩn trọn vẹn lời chúc
+        let msgBox = document.getElementById('message-box');
+
+        if (msgBox.contains(e.target) || true) { // Bấm vào đâu cũng đóng được
+            msgBox.classList.add('is-hidden');
+            setTimeout(() => {
+                msgBox.style.display = 'none';
+
+                // Mọi thứ đã đóng, người dùng tiếp tục ngắm cảnh
+                // Không đưa phong thư trở lại nữa
+
+                // Đập bỏ text "Chạm để đóng" cũ
+                let hint = msgBox.querySelector('.mt-6');
+                if (hint) hint.remove();
+
+                // Set clickStep lên 4 hoặc giá trị nào đó để khóa mọi tương tác về sau
+                clickStep = 4;
+            }, 1000); // Thời gian fade out của box
         }
     }
 }
