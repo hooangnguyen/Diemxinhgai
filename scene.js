@@ -898,6 +898,19 @@
                 grains.push([rand(s * 1.1, w - s * 1.1), base - s * rand(0.15, 0.4), s * rand(0.3, 0.45), rand(0.5, 0.8)]);
             }
 
+            // Bóng mây: vẽ các hạt mây bằng màu xanh xám ở độ phân giải thấp, khi vẽ sẽ ép dẹt xuống mặt đất
+            const SR = 0.25;
+            const sc = makeCanvas(w * SR, h * SR);
+            const sg = sc.getContext('2d');
+            sg.scale(SR, SR);
+            sg.filter = `blur(${Math.max(3, Math.round(s * SR * 0.25))}px)`;
+            const sb = softBlob([105, 130, 150]);
+            for (const [x, y, r, a] of grains) {
+                sg.globalAlpha = a * 0.35;
+                sg.drawImage(sb, x - r * 1.2, y - r * 1.2, r * 2.4, r * 2.4);
+            }
+            c.shadow = sc;
+
             const cv = makeCanvas(w * DPR, h * DPR);
             const g = cv.getContext('2d');
             g.scale(DPR, DPR);
@@ -1242,6 +1255,27 @@
             ctx.globalAlpha = c.alpha;
             ctx.drawImage(c.canvas, c.x - pointer.x * c.depth, c.y - c.h / 2 - pointer.y * c.depth, c.w, c.h);
         }
+        ctx.globalAlpha = 1;
+    }
+
+    // Bóng mây trôi trên đồi và cánh đồng (ban ngày). Mây càng cao trên trời thì bóng
+    // càng nằm xa, gần chân đồi; mây thấp thì bóng ở gần và to hơn.
+    function drawCloudShadows() {
+        const st = pal.fluffy * pal.light;
+        if (st < 0.05) return;
+        const off = (0.5 - pal.bx) * W * 0.35;
+        ctx.globalCompositeOperation = 'multiply';
+        for (const c of clouds) {
+            if (!c.shadow) continue;
+            const t = Math.min(1, Math.max(0, (c.y / H - 0.08) / 0.42));
+            const k = 0.55 + 0.6 * t;
+            const sw = c.w * k, sh = c.h * k * (0.3 + 0.2 * t);
+            const gy = H * (0.68 + 0.24 * t);
+            const x = c.x + off + (c.w - sw) / 2 - pointer.x * (0.5 + 0.6 * t);
+            ctx.globalAlpha = 0.5 * st * c.alpha;
+            ctx.drawImage(c.shadow, x, gy - sh / 2, sw, sh);
+        }
+        ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
     }
 
@@ -1626,6 +1660,7 @@
         drawBirds();
         drawHills();
         drawGrass();
+        drawCloudShadows();
         drawButterflies();
         drawPetals();
         updateBreeze();
