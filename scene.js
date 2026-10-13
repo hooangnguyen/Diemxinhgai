@@ -195,8 +195,11 @@
         return o;
     }
 
-    const COLOR_KEYS = ['horizon', 'rim', 'mist', 'shade', 'cloudLow', 'cloudHigh'];
+    const COLOR_KEYS = ['horizon', 'rim', 'mist', 'shade', 'cloudLow', 'cloudHigh', 'cloudShade'];
+    // flare: lóa ống kính, fluffy: mây cụm trắng (1) hay mây mờ (0), vignette: độ tối viền màn hình
+    const DEFAULTS = { flare: 0, fluffy: 0, cloudSize: 1, vignette: 1 };
     function P(o) {
+        o = { ...DEFAULTS, ...o };
         const p = { ...o, sky: o.sky.map(hex), core: o.core.map(hex), halo: o.halo.map(hex), hills: o.hills.map(l => l.map(hex)) };
         COLOR_KEYS.forEach(k => { p[k] = hex(o[k]); });
         return p;
@@ -209,7 +212,7 @@
         core: ['#fdfcf5', '#eceee8', '#c9cfdd'], halo: ['#c8d7ff', '#5a6ea8'], haloA: 0.55, horizon: '#5a78c0', horizonA: 0.35,
         hills: [['#1e2944', '#0e1528'], ['#121a33', '#080d1a'], ['#080b17', '#030409']],
         rim: '#b4c8ff', rimA: 0.55, mist: '#7890c8', mistA: 0.9, shade: '#020306',
-        cloudLow: '#5a6a96', cloudHigh: '#3a4070', cloudA: 0.7, grass: [195, 24, 2.5, 7]
+        cloudLow: '#5a6a96', cloudHigh: '#3a4070', cloudShade: '#262c50', cloudA: 0.7, grass: [195, 24, 2.5, 7]
     });
 
     const PREDAWN = P({
@@ -219,7 +222,7 @@
         core: ['#fdfcf5', '#eceee8', '#c9cfdd'], halo: ['#c8d7ff', '#5a6ea8'], haloA: 0.4, horizon: '#8a6aa8', horizonA: 0.45,
         hills: [['#2a2244', '#141028'], ['#18142e', '#0a0818'], ['#0b0914', '#040308']],
         rim: '#c8b4e6', rimA: 0.5, mist: '#9a84c0', mistA: 1.2, shade: '#030206',
-        cloudLow: '#7a6290', cloudHigh: '#40386a', cloudA: 0.7, grass: [185, 22, 2.5, 7]
+        cloudLow: '#7a6290', cloudHigh: '#40386a', cloudShade: '#30284e', cloudA: 0.7, grass: [185, 22, 2.5, 7]
     });
 
     const DAWN = P({
@@ -229,18 +232,20 @@
         core: ['#fffaf0', '#ffe6c8', '#ffb898'], halo: ['#ffd8c0', '#ff9aa0'], haloA: 0.9, horizon: '#ffb0a0', horizonA: 1,
         hills: [['#5a4570', '#2d2240'], ['#33284a', '#1a1428'], ['#17101f', '#08060c']],
         rim: '#ffc8c8', rimA: 0.9, mist: '#ffb4c8', mistA: 1.6, shade: '#050309',
-        cloudLow: '#ffb4b0', cloudHigh: '#8c6a9a', cloudA: 1, grass: [170, 20, 3.5, 9]
+        cloudLow: '#ffb4b0', cloudHigh: '#8c6a9a', cloudShade: '#6a4a7a', cloudA: 1, grass: [170, 20, 3.5, 9],
+        flare: 0.2, fluffy: 0, cloudSize: 1.1, vignette: 0.8
     });
 
-    // Ban ngày: xanh xám đậm, hồng đất ở chân trời, mặt trời nhạt và mềm
+    // Ban ngày: trời xanh trong, mây trắng bồng bềnh, đồng cỏ xanh tươi — đối lập hẳn với đêm
     const DAY = P({
-        sky: ['#14243a', '#1d3350', '#2b4a66', '#3e5f78', '#5a7586', '#7f8a96', '#a7959c', '#bfa29f'],
-        milky: 0, stars: 0.08, rays: 0.45, fireflies: 0.25, moon: 0,
-        bx: 0.63, by: 0.24, bsize: 0.7,
-        core: ['#fffaf0', '#f8ead6', '#e8cdb8'], halo: ['#f0e2d0', '#a8b4c8'], haloA: 0.6, horizon: '#d8b8b0', horizonA: 0.5,
-        hills: [['#4d6676', '#2c4252'], ['#2c4650', '#1a2c35'], ['#15262c', '#0a1418']],
-        rim: '#e6dce6', rimA: 0.55, mist: '#d0c8dc', mistA: 1.4, shade: '#050a0c',
-        cloudLow: '#d8bcc4', cloudHigh: '#a0aac0', cloudA: 1.15, grass: [165, 22, 5, 10]
+        sky: ['#2a6fcf', '#3a82dc', '#4f97e6', '#68aaee', '#86bff3', '#a6d2f7', '#c4e2f9', '#dcefff'],
+        milky: 0, stars: 0, rays: 0.8, fireflies: 0, moon: 0,
+        flare: 1, fluffy: 1, cloudSize: 1.35, vignette: 0.15,
+        bx: 0.17, by: 0.12, bsize: 0.8,
+        core: ['#ffffff', '#fffef6', '#fff3d6'], halo: ['#ffffff', '#cfe8ff'], haloA: 1, horizon: '#ffffff', horizonA: 0.35,
+        hills: [['#a7cf8f', '#86b874'], ['#7dbb55', '#5e9e3e'], ['#62ad38', '#468f28']],
+        rim: '#f4ffe0', rimA: 0.8, mist: '#ffffff', mistA: 2.5, shade: '#3a7a22',
+        cloudLow: '#ffffff', cloudHigh: '#ffffff', cloudShade: '#b9cde2', cloudA: 1, grass: [92, 55, 24, 26]
     });
 
     const GOLDEN = P({
@@ -250,7 +255,8 @@
         core: ['#fffbec', '#ffe8b8', '#ffc890'], halo: ['#ffe0b0', '#ff9e70'], haloA: 0.9, horizon: '#ffb880', horizonA: 0.8,
         hills: [['#4a2f50', '#22162e'], ['#2a1a35', '#130c1a'], ['#140a16', '#060308']],
         rim: '#ffc8a0', rimA: 1, mist: '#ffa0a8', mistA: 1.2, shade: '#040206',
-        cloudLow: '#ffb48c', cloudHigh: '#9a6a8c', cloudA: 1, grass: [158, 26, 3.5, 9]
+        cloudLow: '#ffb48c', cloudHigh: '#9a6a8c', cloudShade: '#6a3e66', cloudA: 1, grass: [158, 26, 3.5, 9],
+        flare: 0.35, fluffy: 0.3, cloudSize: 1.15, vignette: 0.7
     });
 
     const SUNSET = P({
@@ -260,7 +266,7 @@
         core: ['#fffbe8', '#ffe2a0', '#ffb070'], halo: ['#ffdc96', '#ff8246'], haloA: 1, horizon: '#ffaa5a', horizonA: 1,
         hills: [['#4a1a46', '#1e0c24'], ['#25102a', '#110714'], ['#120814', '#060308']],
         rim: '#ffb48c', rimA: 1, mist: '#ff8ca0', mistA: 1, shade: '#040206',
-        cloudLow: '#ff9664', cloudHigh: '#8c4678', cloudA: 1, grass: [160, 28, 3, 9]
+        cloudLow: '#ff9664', cloudHigh: '#8c4678', cloudShade: '#5a2a5a', cloudA: 1, grass: [160, 28, 3, 9]
     });
 
     const DUSK = P({
@@ -270,12 +276,12 @@
         core: ['#ffe9c8', '#ffc080', '#ff9060'], halo: ['#ff9a70', '#c04060'], haloA: 0.7, horizon: '#ff7060', horizonA: 0.7,
         hills: [['#36163c', '#170a1e'], ['#1c0c22', '#0c0510'], ['#0e0610', '#050206']],
         rim: '#ff9a8c', rimA: 0.6, mist: '#c0708c', mistA: 0.8, shade: '#030205',
-        cloudLow: '#c06070', cloudHigh: '#5a3060', cloudA: 0.8, grass: [165, 26, 2.5, 8]
+        cloudLow: '#c06070', cloudHigh: '#5a3060', cloudShade: '#3a1a40', cloudA: 0.8, grass: [165, 26, 2.5, 8]
     });
 
     // [giờ, bảng màu]: đêm → rạng sáng → bình minh → ngày → chiều vàng → hoàng hôn → chạng vạng → đêm
     const KEYS = [
-        [0, NIGHT], [4.5, NIGHT], [5.25, PREDAWN], [6.25, DAWN], [9.5, DAY], [15, DAY],
+        [0, NIGHT], [4.5, NIGHT], [5.25, PREDAWN], [6.25, DAWN], [9, DAY], [15, DAY],
         [16.75, GOLDEN], [18.25, SUNSET], [19.5, DUSK], [21, NIGHT], [24, NIGHT]
     ];
 
@@ -312,6 +318,15 @@
         buildSun();
         buildHills();
         recolorGrass();
+        clouds.forEach(buildCloud);
+        notifyTone();
+    }
+
+    // Báo cho trang chính chỉnh độ tối viền màn hình theo khung giờ
+    function notifyTone() {
+        const msg = { type: 'tone', vignette: pal.vignette };
+        if (IN_WORKER) global.postMessage(msg);
+        else if (global.Scene && global.Scene.onmessage) global.Scene.onmessage(msg);
     }
 
     // ---------- Dựng cảnh ----------
@@ -337,6 +352,7 @@
         buildHills();
         initStars();
         initClouds();
+        notifyTone();
         initGrass();
         initFireflies();
         initPetals();
@@ -622,33 +638,99 @@
     }
 
     function makeCloud(x) {
-        const y = rand(0.12, 0.52) * H;
-        const s = rand(40, 90) * (isMobile ? 0.7 : 1);
-        const w = s * rand(4, 7), h = s * 1.6;
-        const c = makeCanvas(w * DPR, h * DPR);
-        const g = c.getContext('2d');
-        g.scale(DPR, DPR);
+        const c = {
+            seed: Math.floor(Math.random() * 1e9),
+            x,
+            y: (0.08 + Math.random() * 0.42) * H,
+            s0: (40 + Math.random() * 50) * (isMobile ? 0.7 : 1),
+            speed: 0.06 + Math.random() * 0.16,
+            alpha: 0.6 + Math.random() * 0.4,
+            depth: 0.1 + Math.random() * 0.25
+        };
+        buildCloud(c);
+        return c;
+    }
 
-        // Càng gần chân trời mây càng ấm và sáng
-        const warm = y / (H * 0.55);
-        const lit = mix(pal.cloudHigh, pal.cloudLow, Math.min(1, warm)).map(Math.round);
-        const ca = pal.cloudA;
-        g.filter = `blur(${Math.round(s * 0.18)}px)`;
-        const puffs = Math.floor(rand(10, 16));
-        for (let i = 0; i < puffs; i++) {
-            const px = rand(s * 1.1, w - s * 1.1);
-            const py = h * 0.55 + gauss() * s * 0.12;
-            const r = rand(s * 0.35, s * 0.6) * (1 - Math.abs(px / w - 0.5));
-            const rg = g.createRadialGradient(px, py + r * 0.3, 0, px, py, r * 1.6);
-            rg.addColorStop(0, `rgba(${lit[0]}, ${lit[1]}, ${lit[2]}, ${0.22 * ca})`);
-            rg.addColorStop(0.6, `rgba(${lit[0] - 40}, ${lit[1] - 30}, ${lit[2]}, ${0.08 * ca})`);
-            rg.addColorStop(1, 'rgba(60, 20, 60, 0)');
-            g.fillStyle = rg;
-            g.beginPath();
-            g.ellipse(px, py, r * 2.4, r, 0, 0, Math.PI * 2);
-            g.fill();
-        }
-        return { canvas: c, x, y, w, h, speed: rand(0.06, 0.22), alpha: rand(0.6, 1), depth: rand(0.1, 0.35) };
+    function buildCloud(c) {
+        seeded(c.seed, () => {
+            const s = c.s0 * pal.cloudSize;
+            const w = s * rand(4, 7), h = s * 2.8;
+            const base = h * 0.7;
+            const cv = makeCanvas(w * DPR, h * DPR);
+            const g = cv.getContext('2d');
+            g.scale(DPR, DPR);
+            const f = pal.fluffy;
+
+            // Càng gần chân trời mây càng ấm và sáng
+            const warm = Math.min(1, c.y / (H * 0.55));
+            const top = mix(pal.cloudHigh, pal.cloudLow, warm);
+            const under = mix(top, pal.cloudShade, 0.6);
+            const ca = pal.cloudA;
+
+            // Lớp 1: mây mờ trải ngang (hoàng hôn, đêm)
+            if (f < 0.99) {
+                g.filter = `blur(${Math.round(s * 0.18)}px)`;
+                const puffs = Math.floor(rand(10, 16));
+                for (let i = 0; i < puffs; i++) {
+                    const px = rand(s * 1.1, w - s * 1.1);
+                    const py = h * 0.62 + gauss() * s * 0.12;
+                    const r = rand(s * 0.35, s * 0.6) * (1 - Math.abs(px / w - 0.5));
+                    const rg = g.createRadialGradient(px, py + r * 0.3, 0, px, py, r * 1.6);
+                    rg.addColorStop(0, rgba(top, 0.22 * ca * (1 - f)));
+                    rg.addColorStop(0.6, rgba(under, 0.08 * ca * (1 - f)));
+                    rg.addColorStop(1, rgba(under, 0));
+                    g.fillStyle = rg;
+                    g.beginPath();
+                    g.ellipse(px, py, r * 2.4, r, 0, 0, Math.PI * 2);
+                    g.fill();
+                }
+            }
+
+            // Lớp 2: mây cụm trắng bồng bềnh, đỉnh sáng, đáy phẳng ngả xanh xám (ban ngày)
+            if (f > 0.01) {
+                const layer = makeCanvas(w * DPR, h * DPR);
+                const k = layer.getContext('2d');
+                k.scale(DPR, DPR);
+                k.filter = `blur(${Math.max(1, Math.round(s * 0.035))}px)`;
+                const grad = k.createLinearGradient(0, base - s * 1.7, 0, base);
+                grad.addColorStop(0, rgba(top, 1));
+                grad.addColorStop(0.55, rgba(top, 1));
+                grad.addColorStop(1, rgba(under, 1));
+                k.fillStyle = grad;
+                const n = Math.floor(rand(7, 11));
+                const puffs = [];
+                for (let i = 0; i < n; i++) {
+                    const t = (i + rand(0.2, 0.8)) / n;
+                    const px = s + t * (w - 2 * s);
+                    const r = s * (0.35 + 0.6 * Math.sin(Math.PI * t)) * rand(0.8, 1.1);
+                    const py = base - r * rand(0.5, 0.8);
+                    puffs.push([px, py, r]);
+                    k.beginPath();
+                    k.arc(px, py, r, 0, Math.PI * 2);
+                    k.fill();
+                }
+                k.beginPath();
+                k.ellipse(w / 2, base - s * 0.2, w / 2 - s * 0.7, s * 0.3, 0, 0, Math.PI * 2);
+                k.fill();
+
+                // Ánh sáng hắt lên đỉnh từng cụm
+                k.globalCompositeOperation = 'source-atop';
+                for (const [px, py, r] of puffs) {
+                    const hg = k.createRadialGradient(px - r * 0.3, py - r * 0.4, 0, px - r * 0.3, py - r * 0.4, r);
+                    hg.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+                    hg.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                    k.fillStyle = hg;
+                    k.fillRect(px - r * 1.3, py - r * 1.4, r * 2, r * 2);
+                }
+                g.filter = 'none';
+                g.globalAlpha = Math.pow(f, 1.5) * 0.92 * Math.min(1, ca);
+                g.drawImage(layer, 0, 0, w, h);
+            }
+
+            c.canvas = cv;
+            c.w = w;
+            c.h = h;
+        });
     }
 
     // Cỏ chia nhóm theo độ sâu để hoa được vẽ xen đúng lớp.
@@ -889,7 +971,23 @@
 
         ctx.globalCompositeOperation = 'source-over';
         ctx.drawImage(sunSprites.core, x - r, y - r, r * 2, r * 2);
+
+        // Lóa ống kính: các quầng màu nhạt nằm trên đường từ mặt trời qua tâm màn hình
+        if (pal.flare > 0.02) {
+            const dx = W / 2 - x, dy = H / 2 - y;
+            ctx.globalCompositeOperation = 'lighter';
+            for (const [k, size, color, a] of FLARES) {
+                drawGlow(color, x + dx * k, y + dy * k, r * size, a * pal.flare * (0.85 + 0.15 * Math.sin(time * 0.02 + k * 5)));
+            }
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+        }
     }
+
+    const FLARES = [
+        [0.3, 1.2, '#fff3c4', 0.22], [0.55, 0.6, '#c8e6ff', 0.3], [0.8, 2.2, '#d6ffd8', 0.1],
+        [1.15, 0.9, '#ffd6f0', 0.18], [1.45, 1.6, '#cfe0ff', 0.12], [1.7, 0.45, '#ffffff', 0.25]
+    ];
 
     function drawClouds() {
         for (const c of clouds) {
