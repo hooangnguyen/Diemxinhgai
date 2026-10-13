@@ -27,7 +27,7 @@
 
     let skyLayer, sunSprites, raysSprite, hillLayers = [];
     let stars = [], shootingStars = [], clouds = [], grassBuckets = [];
-    let fireflies = [], particles = [], petals = [], rings = [];
+    let fireflies = [], particles = [], petals = [], rings = [], wisps = [];
     const grassPts = new Float32Array(32);
 
     const FLOWER_COLORS = ['#ffffff', '#fff4e0', '#ffd6e4', '#ffb3c8', '#c9dcff', '#e8d6ff', '#ffe3a8'];
@@ -182,6 +182,9 @@
         initPetals();
         particles = [];
         rings = [];
+        wisps = [];
+        breeze.active = false;
+        breeze.next = rand(120, 300);
         shootingStars = [];
     }
 
@@ -704,6 +707,7 @@
                     const dx = g.x - gust.x;
                     w += gust.s * Math.sign(dx) * Math.exp(-(dx * dx) / 40000) * Math.cos(time * 0.15 + g.sway);
                 }
+                w += breezeAt(g.x + ox) * (1 + 0.3 * Math.sin(time * 0.2 + g.sway));
                 w *= g.stiffness * g.layer;
                 g.wind = w;
                 ctx.fillStyle = g.color;
@@ -736,7 +740,9 @@
 
     function drawPetals() {
         for (const p of petals) {
-            p.x += (p.vx - Math.sin(time * 0.01) * 0.3) * step;
+            const pb = breezeAt(p.x);
+            p.x += (p.vx - Math.sin(time * 0.01) * 0.3 + pb * 6) * step;
+            p.spin += pb * 0.002 * step;
             p.y += (p.vy + Math.sin(time * 0.03 + p.flip) * 0.25) * step;
             p.rot += p.spin * step;
             p.flip += p.flipSpeed * step;
@@ -797,7 +803,7 @@
         ctx.globalCompositeOperation = 'lighter';
         for (const f of fireflies) {
             const t = time * 0.01 + f.seed;
-            f.x += (Math.sin(t * 1.3) * 0.6 + Math.cos(t * 0.7) * 0.4) * step;
+            f.x += (Math.sin(t * 1.3) * 0.6 + Math.cos(t * 0.7) * 0.4 + breezeAt(f.x) * 3) * step;
             f.y += (Math.cos(t * 1.1) * 0.4 + Math.sin(t * 0.5) * 0.2) * step;
             if (f.x < -10) f.x = W + 10;
             if (f.x > W + 10) f.x = -10;
@@ -809,6 +815,126 @@
             const x = f.x - pointer.x * 0.9;
             drawGlow(f.color, x, f.y, f.size * 14, a * 0.8);
             drawGlow('#fffbe0', x, f.y, f.size * 3, a);
+        }
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+    }
+
+    // ---------- Cơn gió thoảng: dải đốm sáng bay lượn ngang màn hình ----------
+
+    const breeze = { active: false, next: 240, x: 0, dir: 1, speed: 0, fade: 0, curve: null };
+
+    function startBreeze() {
+        breeze.active = true;
+        breeze.dir = Math.random() > 0.5 ? 1 : -1;
+        breeze.speed = Math.max(3, W / rand(260, 340));
+        breeze.x = breeze.dir > 0 ? -120 : W + 120;
+        breeze.fade = 1;
+        // Mỗi cơn gió đi theo một đường lượn sóng riêng
+        breeze.curve = {
+            y: rand(0.42, 0.8) * H,
+            amp: rand(0.04, 0.1) * H,
+            freq: (rand(1.2, 2.6) * Math.PI) / W,
+            phase: rand(0, Math.PI * 2),
+            spread: rand(0.04, 0.07) * H
+        };
+    }
+
+    const curveY = (c, x) => c.y + Math.sin(x * c.freq + c.phase) * c.amp;
+
+    // Độ nghiêng do gió tại toạ độ x: mạnh nhất ở đầu cơn gió, nhạt dần phía sau
+    function breezeAt(x) {
+        if (!breeze.active) return 0;
+        const d = (x - breeze.x) * breeze.dir;
+        const k = d > 0 ? Math.exp(-(d * d) / 40000) : Math.exp(d / 600);
+        return breeze.dir * k * 0.42 * breeze.fade;
+    }
+
+    function updateBreeze() {
+        if (!breeze.active) {
+            breeze.next -= step;
+            if (breeze.next <= 0) startBreeze();
+            return;
+        }
+        breeze.x += breeze.dir * breeze.speed * step;
+        const inside = breeze.x > -100 && breeze.x < W + 100;
+
+        if (inside && wisps.length < 70 && Math.random() < 0.4 * step * quality) {
+            const c = breeze.curve;
+            wisps.push({
+                bx: breeze.x - breeze.dir * rand(0, 220),
+                dir: breeze.dir,
+                speed: breeze.speed * rand(1, 1.6),
+                off: gauss() * c.spread,
+                curve: c,
+                age: 0,
+                max: rand(140, 260),
+                size: rand(0.8, 2),
+                loop: Math.random() < 0.3 ? rand(10, 22) : 0,
+                seed: rand(0, 100),
+                color: pick(['#ffffff', '#fff1c9', '#ffd6e4', '#d9e8ff', '#ffe3a8']),
+                trail: []
+            });
+        }
+
+        // Cơn gió đã đi qua hết màn hình: lặng dần rồi chờ cơn sau
+        const past = breeze.dir > 0 ? breeze.x > W + 300 : breeze.x < -300;
+        if (past) {
+            breeze.fade -= 0.01 * step;
+            if (breeze.fade <= 0) {
+                breeze.active = false;
+                breeze.next = rand(420, 900);
+            }
+        }
+    }
+
+    function drawWisps() {
+        if (!wisps.length) return;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        const ox = -pointer.x * 0.8;
+        for (let i = wisps.length - 1; i >= 0; i--) {
+            const w = wisps[i];
+            w.age += step;
+            w.bx += w.dir * w.speed * step;
+            if (w.age >= w.max) { wisps.splice(i, 1); continue; }
+
+            let x = w.bx, y = curveY(w.curve, w.bx) + w.off;
+            if (w.loop) {
+                // Đốm sáng xoáy một vòng nhỏ trong gió
+                const a = w.age * 0.11 + w.seed;
+                x += Math.cos(a) * w.loop * w.dir;
+                y += Math.sin(a) * w.loop;
+            } else {
+                y += Math.sin(w.age * 0.06 + w.seed) * 5;
+            }
+            x += ox;
+            w.trail.push(x, y);
+            if (w.trail.length > 40) w.trail.splice(0, 2);
+
+            const a = Math.sin((Math.PI * w.age) / w.max);
+            const t = w.trail;
+            if (t.length >= 6) {
+                const grad = ctx.createLinearGradient(x, y, t[0], t[1]);
+                grad.addColorStop(0, hexToRgba(w.color, 0.55 * a));
+                grad.addColorStop(1, hexToRgba(w.color, 0));
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = grad;
+                ctx.lineWidth = w.size * 0.9;
+                ctx.beginPath();
+                ctx.moveTo(t[0], t[1]);
+                for (let j = 2; j < t.length; j += 2) ctx.lineTo(t[j], t[j + 1]);
+                ctx.stroke();
+            }
+            drawGlow(w.color, x, y, w.size * 11, a * 0.85);
+
+            if (Math.random() < 0.06 * step) {
+                addParticle({
+                    x, y, color: w.color, size: rand(0.5, 1.2),
+                    vx: w.dir * rand(0.2, 0.8), vy: rand(-0.2, 0.3), life: 0.8, decay: 0.03, burst: true
+                });
+            }
         }
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
@@ -840,7 +966,9 @@
         drawHills();
         drawGrass();
         drawPetals();
+        updateBreeze();
         drawFireflies();
+        drawWisps();
         drawParticles();
 
         raf(frame);
