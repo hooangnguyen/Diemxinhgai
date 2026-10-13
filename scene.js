@@ -34,9 +34,27 @@
     const SPARK_COLORS = ['#ffffff', '#ffd6e4', '#ffb3c8', '#c9dcff', '#ffe3a8', '#e8d6ff'];
     const PETAL_COLORS = ['#ffc2d6', '#ffd9e6', '#ffb0c8', '#fff0f5'];
 
-    const rand = (a, b) => a + Math.random() * (b - a);
-    const pick = arr => arr[Math.floor(Math.random() * arr.length)];
-    const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+    // rng mặc định là Math.random; khi dựng nền thì đổi tạm sang rng có seed
+    // để lần dựng lại (đổi màu theo giờ) giữ nguyên hình dáng đồi, ngân hà...
+    let rng = Math.random;
+    const rand = (a, b) => a + rng() * (b - a);
+    const pick = arr => arr[Math.floor(rng() * arr.length)];
+    const gauss = () => (rng() + rng() + rng() - 1.5) / 1.5;
+
+    function mulberry32(a) {
+        return () => {
+            a = (a + 0x6D2B79F5) | 0;
+            let t = Math.imul(a ^ (a >>> 15), 1 | a);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
+    function seeded(seed, fn) {
+        const prev = rng;
+        rng = mulberry32(seed);
+        try { return fn(); } finally { rng = prev; }
+    }
 
     function makeCanvas(w, h) {
         w = Math.max(1, Math.ceil(w));
@@ -159,6 +177,143 @@
         ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     }
 
+    // ---------- Bảng màu theo giờ trong ngày ----------
+    // Mỗi khung giờ là một bảng màu; giữa hai mốc thì trộn mượt. Ban ngày cố ý dùng
+    // tông trầm, dịu (xanh xám, hồng đất) thay vì trời xanh sáng để các hiệu ứng vẫn nổi.
+
+    const hex = h => {
+        const n = parseInt(h.slice(1), 16);
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    };
+    const rgba = (c, a) => `rgba(${Math.round(c[0])}, ${Math.round(c[1])}, ${Math.round(c[2])}, ${a})`;
+
+    function mix(a, b, t) {
+        if (typeof a === 'number') return a + (b - a) * t;
+        if (Array.isArray(a)) return a.map((v, i) => mix(v, b[i], t));
+        const o = {};
+        for (const k in a) o[k] = mix(a[k], b[k], t);
+        return o;
+    }
+
+    const COLOR_KEYS = ['horizon', 'rim', 'mist', 'shade', 'cloudLow', 'cloudHigh'];
+    function P(o) {
+        const p = { ...o, sky: o.sky.map(hex), core: o.core.map(hex), halo: o.halo.map(hex), hills: o.hills.map(l => l.map(hex)) };
+        COLOR_KEYS.forEach(k => { p[k] = hex(o[k]); });
+        return p;
+    }
+
+    const NIGHT = P({
+        sky: ['#02030a', '#050a1c', '#0a1430', '#11203f', '#18294a', '#1f3150', '#263a56', '#2c4058'],
+        milky: 1.4, stars: 1.25, rays: 0, fireflies: 1, moon: 1,
+        bx: 0.74, by: 0.2, bsize: 0.8,
+        core: ['#fdfcf5', '#eceee8', '#c9cfdd'], halo: ['#c8d7ff', '#5a6ea8'], haloA: 0.55, horizon: '#5a78c0', horizonA: 0.35,
+        hills: [['#1e2944', '#0e1528'], ['#121a33', '#080d1a'], ['#080b17', '#030409']],
+        rim: '#b4c8ff', rimA: 0.55, mist: '#7890c8', mistA: 0.9, shade: '#020306',
+        cloudLow: '#5a6a96', cloudHigh: '#3a4070', cloudA: 0.7, grass: [195, 24, 2.5, 7]
+    });
+
+    const PREDAWN = P({
+        sky: ['#03040e', '#080b22', '#121638', '#1d1d48', '#2c2552', '#41305c', '#5a3c64', '#6e4868'],
+        milky: 0.9, stars: 1, rays: 0, fireflies: 0.8, moon: 1,
+        bx: 0.84, by: 0.8, bsize: 0.8,
+        core: ['#fdfcf5', '#eceee8', '#c9cfdd'], halo: ['#c8d7ff', '#5a6ea8'], haloA: 0.4, horizon: '#8a6aa8', horizonA: 0.45,
+        hills: [['#2a2244', '#141028'], ['#18142e', '#0a0818'], ['#0b0914', '#040308']],
+        rim: '#c8b4e6', rimA: 0.5, mist: '#9a84c0', mistA: 1.2, shade: '#030206',
+        cloudLow: '#7a6290', cloudHigh: '#40386a', cloudA: 0.7, grass: [185, 22, 2.5, 7]
+    });
+
+    const DAWN = P({
+        sky: ['#0e1030', '#1f1f4e', '#3b3168', '#634a85', '#9a6390', '#d48a95', '#eeb0a0', '#f6cfae'],
+        milky: 0.35, stars: 0.4, rays: 0.75, fireflies: 0.35, moon: 0,
+        bx: 0.5, by: 0.62, bsize: 1,
+        core: ['#fffaf0', '#ffe6c8', '#ffb898'], halo: ['#ffd8c0', '#ff9aa0'], haloA: 0.9, horizon: '#ffb0a0', horizonA: 1,
+        hills: [['#5a4570', '#2d2240'], ['#33284a', '#1a1428'], ['#17101f', '#08060c']],
+        rim: '#ffc8c8', rimA: 0.9, mist: '#ffb4c8', mistA: 1.6, shade: '#050309',
+        cloudLow: '#ffb4b0', cloudHigh: '#8c6a9a', cloudA: 1, grass: [170, 20, 3.5, 9]
+    });
+
+    // Ban ngày: xanh xám đậm, hồng đất ở chân trời, mặt trời nhạt và mềm
+    const DAY = P({
+        sky: ['#14243a', '#1d3350', '#2b4a66', '#3e5f78', '#5a7586', '#7f8a96', '#a7959c', '#bfa29f'],
+        milky: 0, stars: 0.08, rays: 0.45, fireflies: 0.25, moon: 0,
+        bx: 0.63, by: 0.24, bsize: 0.7,
+        core: ['#fffaf0', '#f8ead6', '#e8cdb8'], halo: ['#f0e2d0', '#a8b4c8'], haloA: 0.6, horizon: '#d8b8b0', horizonA: 0.5,
+        hills: [['#4d6676', '#2c4252'], ['#2c4650', '#1a2c35'], ['#15262c', '#0a1418']],
+        rim: '#e6dce6', rimA: 0.55, mist: '#d0c8dc', mistA: 1.4, shade: '#050a0c',
+        cloudLow: '#d8bcc4', cloudHigh: '#a0aac0', cloudA: 1.15, grass: [165, 22, 5, 10]
+    });
+
+    const GOLDEN = P({
+        sky: ['#161a3a', '#262a55', '#3f3a6a', '#66507a', '#9a6a7e', '#cf8a80', '#e8a885', '#f2c39a'],
+        milky: 0.15, stars: 0.25, rays: 0.9, fireflies: 0.55, moon: 0,
+        bx: 0.55, by: 0.45, bsize: 0.95,
+        core: ['#fffbec', '#ffe8b8', '#ffc890'], halo: ['#ffe0b0', '#ff9e70'], haloA: 0.9, horizon: '#ffb880', horizonA: 0.8,
+        hills: [['#4a2f50', '#22162e'], ['#2a1a35', '#130c1a'], ['#140a16', '#060308']],
+        rim: '#ffc8a0', rimA: 1, mist: '#ffa0a8', mistA: 1.2, shade: '#040206',
+        cloudLow: '#ffb48c', cloudHigh: '#9a6a8c', cloudA: 1, grass: [158, 26, 3.5, 9]
+    });
+
+    const SUNSET = P({
+        sky: ['#05040f', '#0c0a24', '#1d0f3a', '#45164a', '#8a2550', '#d4544e', '#f59a5a', '#ffc98a'],
+        milky: 1, stars: 1, rays: 1, fireflies: 1, moon: 0,
+        bx: 0.5, by: 0.6, bsize: 1,
+        core: ['#fffbe8', '#ffe2a0', '#ffb070'], halo: ['#ffdc96', '#ff8246'], haloA: 1, horizon: '#ffaa5a', horizonA: 1,
+        hills: [['#4a1a46', '#1e0c24'], ['#25102a', '#110714'], ['#120814', '#060308']],
+        rim: '#ffb48c', rimA: 1, mist: '#ff8ca0', mistA: 1, shade: '#040206',
+        cloudLow: '#ff9664', cloudHigh: '#8c4678', cloudA: 1, grass: [160, 28, 3, 9]
+    });
+
+    const DUSK = P({
+        sky: ['#04030c', '#090820', '#160d33', '#2d1240', '#4a1a48', '#6e2448', '#8a3446', '#9a4a48'],
+        milky: 1.1, stars: 1.1, rays: 0.15, fireflies: 1, moon: 0,
+        bx: 0.5, by: 0.82, bsize: 1,
+        core: ['#ffe9c8', '#ffc080', '#ff9060'], halo: ['#ff9a70', '#c04060'], haloA: 0.7, horizon: '#ff7060', horizonA: 0.7,
+        hills: [['#36163c', '#170a1e'], ['#1c0c22', '#0c0510'], ['#0e0610', '#050206']],
+        rim: '#ff9a8c', rimA: 0.6, mist: '#c0708c', mistA: 0.8, shade: '#030205',
+        cloudLow: '#c06070', cloudHigh: '#5a3060', cloudA: 0.8, grass: [165, 26, 2.5, 8]
+    });
+
+    // [giờ, bảng màu]: đêm → rạng sáng → bình minh → ngày → chiều vàng → hoàng hôn → chạng vạng → đêm
+    const KEYS = [
+        [0, NIGHT], [4.5, NIGHT], [5.25, PREDAWN], [6.25, DAWN], [9.5, DAY], [15, DAY],
+        [16.75, GOLDEN], [18.25, SUNSET], [19.5, DUSK], [21, NIGHT], [24, NIGHT]
+    ];
+
+    function paletteAt(h) {
+        h = ((h % 24) + 24) % 24;
+        for (let i = 0; i < KEYS.length - 1; i++) {
+            const [h0, p0] = KEYS[i], [h1, p1] = KEYS[i + 1];
+            if (h >= h0 && h <= h1) {
+                const t = (h - h0) / (h1 - h0);
+                return mix(p0, p1, t * t * (3 - 2 * t));
+            }
+        }
+        return NIGHT;
+    }
+
+    let fixedHour = null;
+    let pal = SUNSET;
+    let seeds = { sky: 1, hills: 2, rays: 3, moon: 4 };
+    let prevLayers = null, fade = 1, palTimer = 0;
+    const PALETTE_EVERY = 90000;
+
+    function nowHour() {
+        if (fixedHour !== null) return fixedHour;
+        const d = new Date();
+        return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+    }
+
+    // Dựng lại nền theo màu của giờ hiện tại; crossfade từ bản cũ cho khỏi giật
+    function applyPalette(crossfade) {
+        prevLayers = crossfade ? { sky: skyLayer, hills: hillLayers, grass: grassBack } : null;
+        fade = crossfade ? 0 : 1;
+        pal = paletteAt(nowHour());
+        buildSky();
+        buildSun();
+        buildHills();
+        recolorGrass();
+    }
+
     // ---------- Dựng cảnh ----------
 
     let dprCap = 2;
@@ -172,6 +327,11 @@
         canvas.width = Math.floor(W * DPR);
         canvas.height = Math.floor(H * DPR);
 
+        const r = () => Math.floor(Math.random() * 1e9);
+        seeds = { sky: r(), hills: r(), rays: r(), moon: r() };
+        prevLayers = null;
+        fade = 1;
+        pal = paletteAt(nowHour());
         buildSky();
         buildSun();
         buildHills();
@@ -189,12 +349,16 @@
     }
 
     const sunPos = () => ({
-        x: W * 0.5,
-        y: H * 0.6,
-        r: isMobile ? W * 0.13 : Math.min(W, H) * 0.075
+        x: W * pal.bx,
+        y: H * pal.by,
+        r: (isMobile ? W * 0.13 : Math.min(W, H) * 0.075) * pal.bsize
     });
 
     function buildSky() {
+        seeded(seeds.sky, buildSkyLayer);
+    }
+
+    function buildSkyLayer() {
         const m = PARALLAX;
         const w = W + m * 2, h = H + m * 2;
         skyLayer = makeCanvas(w * DPR, h * DPR);
@@ -202,14 +366,7 @@
         g.scale(DPR, DPR);
 
         const grad = g.createLinearGradient(0, 0, 0, h);
-        grad.addColorStop(0.00, '#05040f');
-        grad.addColorStop(0.22, '#0c0a24');
-        grad.addColorStop(0.40, '#1d0f3a');
-        grad.addColorStop(0.52, '#45164a');
-        grad.addColorStop(0.60, '#8a2550');
-        grad.addColorStop(0.67, '#d4544e');
-        grad.addColorStop(0.73, '#f59a5a');
-        grad.addColorStop(0.80, '#ffc98a');
+        [0, 0.22, 0.40, 0.52, 0.60, 0.67, 0.73, 0.80].forEach((o, i) => grad.addColorStop(o, rgba(pal.sky[i], 1)));
         g.fillStyle = grad;
         g.fillRect(0, 0, w, h);
 
@@ -221,9 +378,10 @@
         const nx = -dy / len, ny = dx / len;
         const band = Math.min(w, h) * 0.12;
 
-        const nebula = ['rgba(150, 120, 255, 0.05)', 'rgba(255, 140, 210, 0.04)', 'rgba(120, 190, 255, 0.04)'];
+        const mk = pal.milky;
+        const nebula = [`rgba(150, 120, 255, ${0.05 * mk})`, `rgba(255, 140, 210, ${0.04 * mk})`, `rgba(120, 190, 255, ${0.04 * mk})`];
         for (let i = 0; i < 80; i++) {
-            const t = Math.random();
+            const t = rng();
             const o = gauss() * band;
             const x = ax + dx * t + nx * o, y = ay + dy * t + ny * o;
             const r = rand(band * 0.6, band * 1.8);
@@ -236,22 +394,22 @@
 
         const dust = Math.floor((w * h) / (isMobile ? 260 : 180));
         for (let i = 0; i < dust; i++) {
-            const t = Math.random();
+            const t = rng();
             const o = gauss() * band * 1.2;
             const x = ax + dx * t + nx * o, y = ay + dy * t + ny * o;
-            g.fillStyle = `rgba(255, 245, 255, ${rand(0.04, 0.22) * (1 - y / h)})`;
+            g.fillStyle = `rgba(255, 245, 255, ${rand(0.04, 0.22) * (1 - y / h) * Math.min(1, mk)})`;
             g.fillRect(x, y, rand(0.4, 1.1), rand(0.4, 1.1));
         }
 
         // Vệt bụi tối ở giữa dải ngân hà
         g.globalCompositeOperation = 'source-over';
         for (let i = 0; i < 40; i++) {
-            const t = Math.random();
+            const t = rng();
             const o = gauss() * band * 0.25;
             const x = ax + dx * t + nx * o, y = ay + dy * t + ny * o;
             const r = rand(band * 0.2, band * 0.5);
             const rg = g.createRadialGradient(x, y, 0, x, y, r);
-            rg.addColorStop(0, 'rgba(5, 4, 15, 0.12)');
+            rg.addColorStop(0, `rgba(5, 4, 15, ${0.12 * Math.min(1, mk)})`);
             rg.addColorStop(1, 'rgba(5, 4, 15, 0)');
             g.fillStyle = rg;
             g.fillRect(x - r, y - r, r * 2, r * 2);
@@ -267,18 +425,18 @@
         g.translate(128, 32);
         g.scale(4, 1);
         let rg = g.createRadialGradient(0, 0, 0, 0, 0, 32);
-        rg.addColorStop(0, 'rgba(255, 170, 90, 0.4)');
-        rg.addColorStop(0.5, 'rgba(255, 90, 80, 0.12)');
-        rg.addColorStop(1, 'rgba(255, 60, 80, 0)');
+        rg.addColorStop(0, rgba(pal.horizon, 0.4 * pal.horizonA));
+        rg.addColorStop(0.5, rgba(pal.halo[1], 0.12 * pal.horizonA));
+        rg.addColorStop(1, rgba(pal.halo[1], 0));
         g.fillStyle = rg;
         g.fillRect(-32, -32, 64, 64);
 
         const halo = makeCanvas(256, 256);
         g = halo.getContext('2d');
         rg = g.createRadialGradient(128, 128, 21, 128, 128, 128);
-        rg.addColorStop(0, 'rgba(255, 220, 150, 0.75)');
-        rg.addColorStop(0.3, 'rgba(255, 130, 70, 0.3)');
-        rg.addColorStop(1, 'rgba(255, 80, 60, 0)');
+        rg.addColorStop(0, rgba(pal.halo[0], 0.75 * pal.haloA));
+        rg.addColorStop(0.3, rgba(pal.halo[1], 0.3 * pal.haloA));
+        rg.addColorStop(1, rgba(pal.halo[1], 0));
         g.fillStyle = rg;
         g.fillRect(0, 0, 256, 256);
 
@@ -287,18 +445,42 @@
         g = core.getContext('2d');
         const c = cs / 2;
         rg = g.createRadialGradient(c, c - c * 0.3, 0, c, c, c - 1);
-        rg.addColorStop(0, '#fffbe8');
-        rg.addColorStop(0.6, '#ffe2a0');
-        rg.addColorStop(0.97, '#ffb070');
-        rg.addColorStop(1, 'rgba(255, 176, 112, 0)');
+        rg.addColorStop(0, rgba(pal.core[0], 1));
+        rg.addColorStop(0.6, rgba(pal.core[1], 1));
+        rg.addColorStop(0.97, rgba(pal.core[2], 1));
+        rg.addColorStop(1, rgba(pal.core[2], 0));
         g.fillStyle = rg;
         g.beginPath();
         g.arc(c, c, c - 1, 0, Math.PI * 2);
         g.fill();
 
+        // Ban đêm: thêm vết hõm cho thành mặt trăng
+        if (pal.moon > 0.02) {
+            g.save();
+            g.clip();
+            seeded(seeds.moon, () => {
+                for (let i = 0; i < 9; i++) {
+                    const a = rand(0, Math.PI * 2), d = Math.sqrt(rng()) * c * 0.75;
+                    const cr = rand(0.06, 0.2) * c;
+                    const x = c + Math.cos(a) * d, y = c + Math.sin(a) * d;
+                    const cg = g.createRadialGradient(x - cr * 0.3, y - cr * 0.3, 0, x, y, cr);
+                    cg.addColorStop(0, `rgba(140, 145, 170, ${0.28 * pal.moon})`);
+                    cg.addColorStop(1, 'rgba(140, 145, 170, 0)');
+                    g.fillStyle = cg;
+                    g.fillRect(x - cr, y - cr, cr * 2, cr * 2);
+                }
+            });
+            g.restore();
+        }
+
         sunSprites = { horizon, halo, core };
 
-        // Tia nắng: các nan sáng mảnh, mờ dần ra xa
+        if (!raysSprite) seeded(seeds.rays, buildRays);
+    }
+
+    // Tia nắng: các nan sáng mảnh, mờ dần ra xa (không phụ thuộc màu nên chỉ dựng một lần)
+    function buildRays() {
+        let g, rg;
         const rs = 512;
         raysSprite = makeCanvas(rs, rs);
         g = raysSprite.getContext('2d');
@@ -325,13 +507,18 @@
 
     // Ba lớp đồi, xa → gần, có viền sáng hắt từ mặt trời
     function buildHills() {
+        seeded(seeds.hills, buildHillLayers);
+    }
+
+    function buildHillLayers() {
         const defs = [
-            { base: 0.60, dip: 0.04, amps: [0.03, 0.012, 0.006], top: '#4a1a46', bottom: '#1e0c24', rim: 0.45, depth: 0.25 },
-            { base: 0.69, amps: [0.04, 0.02, 0.008], top: '#25102a', bottom: '#110714', rim: 0.3, depth: 0.55 },
-            { base: 0.79, amps: [0.03, 0.018, 0.01], top: '#120814', bottom: '#060308', rim: 0.18, depth: 0.85 }
+            { base: 0.60, dip: 0.04, amps: [0.03, 0.012, 0.006], rim: 0.45, depth: 0.25 },
+            { base: 0.69, amps: [0.04, 0.02, 0.008], rim: 0.3, depth: 0.55 },
+            { base: 0.79, amps: [0.03, 0.018, 0.01], rim: 0.18, depth: 0.85 }
         ];
+        const rimX = Math.min(0.85, Math.max(0.15, pal.bx));
         const m = PARALLAX * 2;
-        hillLayers = defs.map(d => {
+        hillLayers = defs.map((d, li) => {
             const w = W + m * 2, hh = H + m;
             const c = makeCanvas(w * DPR, hh * DPR);
             const g = c.getContext('2d');
@@ -354,15 +541,15 @@
             path.closePath();
 
             const grad = g.createLinearGradient(0, (d.base - 0.06) * H, 0, H);
-            grad.addColorStop(0, d.top);
-            grad.addColorStop(1, d.bottom);
+            grad.addColorStop(0, rgba(pal.hills[li][0], 1));
+            grad.addColorStop(1, rgba(pal.hills[li][1], 1));
             g.fillStyle = grad;
             g.fill(path);
 
             const rim = g.createLinearGradient(0, 0, w, 0);
-            rim.addColorStop(0, 'rgba(255, 150, 130, 0)');
-            rim.addColorStop(0.5, `rgba(255, 180, 140, ${d.rim})`);
-            rim.addColorStop(1, 'rgba(255, 150, 130, 0)');
+            rim.addColorStop(0, rgba(pal.rim, 0));
+            rim.addColorStop(rimX, rgba(pal.rim, Math.min(1, d.rim * pal.rimA)));
+            rim.addColorStop(1, rgba(pal.rim, 0));
             g.strokeStyle = rim;
             g.lineWidth = 1.4;
             g.beginPath();
@@ -372,9 +559,9 @@
             g.save();
             g.clip(path);
             const mist = g.createLinearGradient(0, d.base * H, 0, (d.base + 0.16) * H);
-            mist.addColorStop(0, 'rgba(255, 140, 160, 0)');
-            mist.addColorStop(0.5, `rgba(255, 140, 160, ${0.06 * (1 - d.depth)})`);
-            mist.addColorStop(1, 'rgba(255, 140, 160, 0)');
+            mist.addColorStop(0, rgba(pal.mist, 0));
+            mist.addColorStop(0.5, rgba(pal.mist, 0.06 * (1 - d.depth) * pal.mistA));
+            mist.addColorStop(1, rgba(pal.mist, 0));
             g.fillStyle = mist;
             g.fillRect(0, d.base * H, w, 0.16 * H);
             g.restore();
@@ -386,8 +573,8 @@
         const near = hillLayers[hillLayers.length - 1];
         const g = near.canvas.getContext('2d');
         const shade = g.createLinearGradient(0, H * 0.72, 0, H);
-        shade.addColorStop(0, 'rgba(4, 2, 6, 0)');
-        shade.addColorStop(1, 'rgba(4, 2, 6, 0.95)');
+        shade.addColorStop(0, rgba(pal.shade, 0));
+        shade.addColorStop(1, rgba(pal.shade, 0.95));
         g.fillStyle = shade;
         g.fillRect(0, H * 0.72, W + near.margin * 2, H * 0.28 + near.margin);
     }
@@ -444,7 +631,8 @@
 
         // Càng gần chân trời mây càng ấm và sáng
         const warm = y / (H * 0.55);
-        const lit = [Math.round(140 + 115 * warm), Math.round(70 + 80 * warm), Math.round(120 - 20 * warm)];
+        const lit = mix(pal.cloudHigh, pal.cloudLow, Math.min(1, warm)).map(Math.round);
+        const ca = pal.cloudA;
         g.filter = `blur(${Math.round(s * 0.18)}px)`;
         const puffs = Math.floor(rand(10, 16));
         for (let i = 0; i < puffs; i++) {
@@ -452,8 +640,8 @@
             const py = h * 0.55 + gauss() * s * 0.12;
             const r = rand(s * 0.35, s * 0.6) * (1 - Math.abs(px / w - 0.5));
             const rg = g.createRadialGradient(px, py + r * 0.3, 0, px, py, r * 1.6);
-            rg.addColorStop(0, `rgba(${lit[0]}, ${lit[1]}, ${lit[2]}, 0.22)`);
-            rg.addColorStop(0.6, `rgba(${lit[0] - 40}, ${lit[1] - 30}, ${lit[2]}, 0.08)`);
+            rg.addColorStop(0, `rgba(${lit[0]}, ${lit[1]}, ${lit[2]}, ${0.22 * ca})`);
+            rg.addColorStop(0.6, `rgba(${lit[0] - 40}, ${lit[1] - 30}, ${lit[2]}, ${0.08 * ca})`);
             rg.addColorStop(1, 'rgba(60, 20, 60, 0)');
             g.fillStyle = rg;
             g.beginPath();
@@ -487,7 +675,10 @@
                 segs: 3 + Math.floor(layer * 2),
                 stiffness: rand(0.6, 1),
                 sway: rand(0, Math.PI * 2),
-                color: `hsl(${rand(148, 172)}, ${28 + layer * 18}%, ${3 + layer * 9 + rand(-1, 1.5)}%)`,
+                hj: rand(-12, 12),
+                lj: rand(-1, 1.5),
+                lean: rand(-0.05, 0.05),
+                color: '',
                 tx: 0, ty: 0, wind: 0
             };
             grassBuckets[bi].blades.push(blade);
@@ -503,7 +694,20 @@
             }
         }
 
-        // Vẽ sẵn các lớp cỏ xa, rộng hơn màn hình để chừa chỗ cho thị sai
+        recolorGrass();
+    }
+
+    // Tô lại màu cỏ theo bảng màu hiện tại và vẽ sẵn các lớp cỏ xa
+    function recolorGrass() {
+        const [hue, sat, light, range] = pal.grass;
+        for (const b of grassBuckets) {
+            for (const g of b.blades) {
+                g.color = `hsl(${hue + g.hj}, ${sat + g.layer * 18}%, ${Math.max(0.5, light + g.layer * range + g.lj)}%)`;
+            }
+        }
+
+        // Rộng hơn màn hình để chừa chỗ cho thị sai
+        const m = PARALLAX * 2;
         grassBack = makeCanvas((W + m * 2) * DPR, H * DPR);
         const g = grassBack.getContext('2d');
         g.scale(DPR, DPR);
@@ -512,7 +716,7 @@
             const b = grassBuckets[i];
             for (const blade of b.blades) {
                 g.fillStyle = blade.color;
-                bladePath(g, blade, rand(-0.05, 0.05), b.hw);
+                bladePath(g, blade, blade.lean, b.hw);
                 g.fill();
             }
         }
@@ -553,6 +757,7 @@
                 size: rand(1, 2.4),
                 seed: rand(0, 1000),
                 blink: rand(0.02, 0.06),
+                rank: Math.random(),
                 color: pick(['#d9ff7a', '#b6ff5c', '#fff3a0'])
             });
         }
@@ -582,16 +787,28 @@
 
     // ---------- Vẽ ----------
 
+    // Vẽ lớp cũ bên dưới rồi lớp mới mờ dần lên trên khi vừa đổi màu theo giờ
+    function crossfade(cur, prev, draw) {
+        if (prev && fade < 1) {
+            ctx.globalAlpha = 1;
+            draw(prev);
+            ctx.globalAlpha = fade;
+        }
+        draw(cur);
+        ctx.globalAlpha = 1;
+    }
+
     function drawSky() {
         const m = PARALLAX;
-        ctx.drawImage(skyLayer, -m - pointer.x * 0.15, -m - pointer.y * 0.15, W + m * 2, H + m * 2);
+        crossfade(skyLayer, prevLayers && prevLayers.sky, c =>
+            ctx.drawImage(c, -m - pointer.x * 0.15, -m - pointer.y * 0.15, W + m * 2, H + m * 2));
     }
 
     function drawStars() {
         const ox = -pointer.x * 0.2, oy = -pointer.y * 0.2;
         for (const s of stars) {
             const tw = 0.55 + 0.45 * Math.sin(time * s.speed + s.phase);
-            const a = tw * s.fade;
+            const a = Math.min(1, tw * s.fade * pal.stars);
             if (a < 0.02) continue;
             const x = s.x + ox, y = s.y + oy;
             ctx.fillStyle = s.color;
@@ -611,7 +828,7 @@
     }
 
     function drawShootingStars() {
-        if (Math.random() < 0.004 * step && shootingStars.length < 3) shootingStars.push(createShootingStar());
+        if (Math.random() < 0.004 * step * Math.min(1, pal.stars) && shootingStars.length < 3) shootingStars.push(createShootingStar());
 
         ctx.globalCompositeOperation = 'lighter';
         ctx.lineCap = 'round';
@@ -656,11 +873,13 @@
         ctx.globalCompositeOperation = 'lighter';
 
         // Tia nắng xoay rất chậm
-        const rs = r * 9 * pulse;
-        ctx.globalAlpha = 0.14 + Math.sin(time * 0.013) * 0.04;
-        setTransform(x, y, time * 0.0008, 1, 1);
-        ctx.drawImage(raysSprite, -rs, -rs, rs * 2, rs * 2);
-        resetTransform();
+        if (pal.rays > 0.01) {
+            const rs = r * 9 * pulse;
+            ctx.globalAlpha = (0.14 + Math.sin(time * 0.013) * 0.04) * pal.rays;
+            setTransform(x, y, time * 0.0008, 1, 1);
+            ctx.drawImage(raysSprite, -rs, -rs, rs * 2, rs * 2);
+            resetTransform();
+        }
 
         ctx.globalAlpha = 1;
         const hw = r * 26, hh = r * 8;
@@ -683,9 +902,10 @@
     }
 
     function drawHills() {
-        for (const l of hillLayers) {
-            ctx.drawImage(l.canvas, -l.margin - pointer.x * l.depth, -pointer.y * l.depth * 0.5, W + l.margin * 2, l.h);
-        }
+        hillLayers.forEach((l, i) => {
+            crossfade(l.canvas, prevLayers && prevLayers.hills[i] && prevLayers.hills[i].canvas, c =>
+                ctx.drawImage(c, -l.margin - pointer.x * l.depth, -pointer.y * l.depth * 0.5, W + l.margin * 2, l.h));
+        });
     }
 
     function drawGrass() {
@@ -694,7 +914,7 @@
         gust.s *= Math.pow(0.95, step);
 
         const m = PARALLAX * 2;
-        ctx.drawImage(grassBack, ox - m, 0, W + m * 2, H);
+        crossfade(grassBack, prevLayers && prevLayers.grass, c => ctx.drawImage(c, ox - m, 0, W + m * 2, H));
 
         // Trên trình vẽ phần mềm, tô từng lá nhỏ nhanh hơn gộp một path khổng lồ
         for (let i = STATIC_BUCKETS; i < NB; i++) {
@@ -810,6 +1030,7 @@
             if (f.y < H * 0.6) f.y += step;
             if (f.y > H) f.y -= step;
 
+            if (f.rank > pal.fireflies) continue;
             const a = Math.max(0, Math.sin(time * f.blink + f.seed)) ** 2;
             if (a < 0.02) continue;
             const x = f.x - pointer.x * 0.9;
@@ -951,6 +1172,16 @@
 
         adaptQuality(dt);
 
+        if (fade < 1) {
+            fade = Math.min(1, fade + step / 150);
+            if (fade >= 1) prevLayers = null;
+        }
+        palTimer += Math.min(dt, 1000);
+        if (palTimer > PALETTE_EVERY && fixedHour === null) {
+            palTimer = 0;
+            applyPalette(true);
+        }
+
         const ease = 1 - Math.pow(0.96, step);
         pointer.x += (pointer.tx - pointer.x) * ease;
         pointer.y += (pointer.ty - pointer.y) * ease;
@@ -1046,6 +1277,7 @@
     function handle(m) {
         switch (m.type) {
             case 'init':
+                fixedHour = typeof m.hour === 'number' ? m.hour : null;
                 canvas = m.canvas;
                 ctx = canvas.getContext('2d');
                 setSize(m);
@@ -1066,7 +1298,11 @@
                 break;
             case 'visibility':
                 running = m.visible;
-                if (running && ctx) startLoop();
+                // Quay lại sau khi ẩn tab: cập nhật ngay màu theo giờ hiện tại
+                if (running && ctx) {
+                    if (fixedHour === null) applyPalette(true);
+                    startLoop();
+                }
                 break;
         }
     }
