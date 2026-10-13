@@ -3,6 +3,22 @@
 let canvas = document.getElementById('scene');
 let send = () => {};
 
+// ?gio=21 hoặc ?gio=21:30 để xem cảnh ở một giờ cố định; bỏ trống thì theo giờ thật
+function parseHour() {
+    const q = new URLSearchParams(location.search).get('gio');
+    if (!q) return null;
+    const [h, m = '0'] = q.split(':');
+    const v = Number(h) + Number(m) / 60;
+    return Number.isFinite(v) ? ((v % 24) + 24) % 24 : null;
+}
+const hour = parseHour();
+
+// scene.js báo độ tối viền màn hình theo khung giờ (ban ngày gần như không có viền tối)
+const vignette = document.querySelector('.vignette');
+function onSceneMessage(m) {
+    if (m.type === 'tone' && vignette) vignette.style.opacity = m.vignette;
+}
+
 const viewport = () => ({
     width: window.innerWidth,
     height: window.innerHeight,
@@ -19,8 +35,9 @@ function startWorker() {
         return false;
     }
     const offscreen = canvas.transferControlToOffscreen();
-    worker.postMessage({ type: 'init', canvas: offscreen, ...viewport() }, [offscreen]);
+    worker.postMessage({ type: 'init', canvas: offscreen, hour, ...viewport() }, [offscreen]);
     send = msg => worker.postMessage(msg);
+    worker.addEventListener('message', e => onSceneMessage(e.data));
 
     // Worker hỏng giữa chừng: thay canvas mới và vẽ trên luồng chính
     worker.addEventListener('error', () => {
@@ -38,8 +55,9 @@ function startMainThread() {
     const script = document.createElement('script');
     script.src = 'scene.js';
     script.onload = () => {
+        self.Scene.onmessage = onSceneMessage;
         send = msg => self.Scene.post(msg);
-        send({ type: 'init', canvas, ...viewport() });
+        send({ type: 'init', canvas, hour, ...viewport() });
     };
     document.body.appendChild(script);
 }

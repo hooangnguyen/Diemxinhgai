@@ -27,6 +27,7 @@ body {
     inset: 0;
     pointer-events: none;
     background: radial-gradient(ellipse 120% 90% at 50% 55%, transparent 55%, rgba(3, 2, 10, 0.55) 100%);
+    transition: opacity 3s ease;
 }
 
 /* Mở màn từ bóng tối */
