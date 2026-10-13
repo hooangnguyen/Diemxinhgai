@@ -1,692 +1,661 @@
-const starsCanvas = document.getElementById('starsCanvas');
-const terrainCanvas = document.getElementById('terrainCanvas');
-const grassCanvas = document.getElementById('grassCanvas');
+// Cảnh hoàng hôn: bầu trời sao, dải ngân hà, mặt trời lặn, mây, đồi, cánh đồng hoa và đom đóm.
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
 
-const starsCtx = starsCanvas.getContext('2d');
-const terrainCtx = terrainCanvas.getContext('2d', { alpha: true });
-const grassCtx = grassCanvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+let time = 0;
+let isMobile = false;
 
-let width, height;
+// Lớp nền vẽ sẵn (tĩnh) để tiết kiệm hiệu năng
+let skyLayer, hillLayers = [];
+
 let stars = [];
 let shootingStars = [];
+let clouds = [];
 let grassBlades = [];
 let fireflies = [];
-let flowerParticles = [];
-let clouds = [];
-let time = 0;
-let clickStep = 0; // 0: Chưa bấm gì, 1: Đã hiện thư, 2: Đã hiện lời chúc
-let isMusicPlaying = false;
-let userMuted = false; // Ngăn nhạc tự phát lại nếu người dùng đã chủ động tắt
+let particles = [];
 
-function init() {
-    window.addEventListener('resize', resize);
+// Thị sai theo con trỏ / con quay
+const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+const PARALLAX = 18;
 
-    // Thêm listener bắt sự kiện chạm trên màn hình điện thoại hoặc click
-    window.addEventListener('click', handleInteraction);
-    window.addEventListener('touchstart', handleInteraction, { passive: false });
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
 
-    // Gọi thử play nhạc ngay khi trang load (Do có autoplay policy, có thể bị chặn)
-    // Tương tác đầu tiên của người dùng (click vào bất kì đâu) sẽ giải quyết vấn đề bị chặn
-    attemptPlayMusic();
-
-    // Nút đóng băng nhạc / phát nhạc
-    const musicToggle = document.getElementById('music-toggle');
-    if (musicToggle) {
-        const handleToggle = (e) => {
-            if (e.type === 'touchstart') {
-                e.preventDefault(); // Ngăn browser gửi thêm event click sau touchstart
-            }
-            e.stopPropagation(); // Phải dừng sự kiện để không ấn nhầm lệnh "chạm màn hình"
-
-            let bgMusic = document.getElementById('bg-music');
-            let musicIcon = document.getElementById('music-icon');
-            let musicText = document.getElementById('music-text');
-
-            if (bgMusic) {
-                if (!bgMusic.paused) {
-                    // Đang phát -> đóng băng
-                    bgMusic.pause();
-                    isMusicPlaying = false;
-                    userMuted = true; // Người dùng đã chủ động tắt
-
-                    if (musicIcon) {
-                        musicIcon.innerText = "🔇";
-                        musicIcon.classList.remove("animate-pulse");
-                    }
-                    if (musicText) musicText.innerText = "Đã tắt nhạc";
-
-                    musicToggle.classList.remove("bg-white/10", "bg-white/20");
-                    musicToggle.classList.add("bg-black/40"); // Nút mờ đi khi đóng băng
-                } else {
-                    // Đang tắt -> phát lại
-                    userMuted = false;
-                    attemptPlayMusic();
-                }
-            }
-        };
-
-        musicToggle.addEventListener('click', handleToggle);
-        musicToggle.addEventListener('touchstart', handleToggle, { passive: false });
-    }
-
-    resize();
-    requestAnimationFrame(animate);
+function makeCanvas(w, h) {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(w));
+    c.height = Math.max(1, Math.ceil(h));
+    return c;
 }
 
-function attemptPlayMusic() {
-    let bgMusic = document.getElementById('bg-music');
-    let musicIcon = document.getElementById('music-icon');
-    let musicText = document.getElementById('music-text');
-    if (bgMusic) {
-        let playPromise = bgMusic.play();
-        if (playPromise !== undefined) {
-            playPromise.then(() => {
-                isMusicPlaying = true;
-                if (musicIcon) {
-                    musicIcon.innerText = "🔊";
-                    musicIcon.classList.add("animate-pulse");
-                }
-                if (musicText) musicText.innerText = "Đang phát...";
-                let musicToggle = document.getElementById('music-toggle');
-                if (musicToggle) {
-                    musicToggle.classList.remove("bg-black/40");
-                    musicToggle.classList.add("bg-white/10");
-                }
-            }).catch(err => {
-                console.log("Trình duyệt chặn Autoplay. Đợi người dùng tương tác.", err);
-                isMusicPlaying = false;
-                if (musicIcon) {
-                    musicIcon.innerText = "🎵"; // Biểu tượng mặc định khi chưa rõ trạng thái bị chặn
-                }
-                if (musicText) musicText.innerText = "Nhạc nền";
-            });
-        }
-    }
+// Sprite phát sáng dùng chung (nhanh hơn shadowBlur rất nhiều)
+const glowCache = {};
+function glow(color) {
+    if (glowCache[color]) return glowCache[color];
+    const s = 64;
+    const c = makeCanvas(s, s);
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    grad.addColorStop(0, color);
+    grad.addColorStop(0.18, color);
+    grad.addColorStop(0.45, hexToRgba(color, 0.25));
+    grad.addColorStop(1, hexToRgba(color, 0));
+    g.fillStyle = grad;
+    g.fillRect(0, 0, s, s);
+    glowCache[color] = c;
+    return c;
 }
 
-// Xử lý logic tương tác khi người dùng chạm
-function handleInteraction(e) {
-    let clientX, clientY;
-    if (e.type === 'touchstart') {
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
-    } else {
-        clientX = e.clientX;
-        clientY = e.clientY;
-    }
-
-    // Phát nhạc ngay lần chạm đầu tiên (vượt qua cơ chế chặn autoplay của trình duyệt)
-    if (!isMusicPlaying && !userMuted) {
-        attemptPlayMusic();
-    }
-
-    // Mỗi lần chạm sẽ bung ra các đốm sáng ma thuật
-    spawnBurst(clientX, clientY);
-
-    if (clickStep === 0) {
-        // Lần đầu chạm: Làm mờ dần thẻ chữ chào
-        let instructionEl = document.getElementById('initial-instruction');
-        instructionEl.style.opacity = '0';
-
-        // Đợi 0.5s cho chữ mây mây bay đi rồi mới hiện phong thư
-        setTimeout(() => {
-            instructionEl.style.display = 'none'; // Xóa hẳn layout
-            let envelopeEl = document.getElementById('envelope-container');
-            // Cần set lại display trước để có thể animation opacity từ class hidden bóc ra
-            envelopeEl.style.display = 'flex';
-            // Bật con trỏ pointer events lại cho envelope 
-            envelopeEl.style.pointerEvents = 'auto';
-            // Đợi 10ms frame kế bắt đầu transition
-            setTimeout(() => envelopeEl.classList.remove('is-hidden'), 10);
-        }, 500);
-
-        clickStep = 1;
-
-    } else if (clickStep === 1) {
-        // Phải bấm CỤ THỂ vào phong thư thì mới mở
-        let envelopeEl = document.getElementById('envelope-container');
-        if (envelopeEl.contains(e.target)) {
-            // Lần 2 chạm: Ẩn phong thư từ từ, rồi hiện thiệp
-            envelopeEl.classList.add('is-hidden'); // Kích hoạt CSS làm mờ đi trước
-            envelopeEl.style.pointerEvents = 'none'; // Khóa click
-
-            setTimeout(() => {
-                envelopeEl.style.display = 'none'; // Quét sạch nhường chỗ
-                let msgBox = document.getElementById('message-box');
-                msgBox.style.display = 'block'; // Setup layout
-
-                setTimeout(() => {
-                    msgBox.classList.remove('is-hidden'); // Kích hoạt fade-in
-
-                    // Hiệu ứng gõ chữ
-                    const titleEl = document.getElementById('msg-title');
-                    const contentEl = document.getElementById('msg-content');
-
-                    const titleText = titleEl.getAttribute('data-text');
-                    const contentText = contentEl.getAttribute('data-text');
-
-                    titleEl.innerHTML = '';
-                    contentEl.innerHTML = '';
-
-                    function typeWriter(element, text, speed, callback) {
-                        let i = 0;
-                        let chars = [...text];
-                        function type() {
-                            if (i < chars.length) {
-                                element.innerHTML += chars[i];
-                                i++;
-                                setTimeout(type, speed);
-                            } else if (callback) {
-                                callback();
-                            }
-                        }
-                        type();
-                    }
-
-                    setTimeout(() => {
-                        typeWriter(titleEl, titleText, 100, () => {
-                            setTimeout(() => {
-                                typeWriter(contentEl, contentText, 45, () => {
-                                    // Sau khi gõ xong lời chúc, thêm nút/dòng chữ "Chạm để đóng" nhấp nháy
-                                    let closeHint = document.createElement('div');
-                                    closeHint.innerHTML = "Chạm để đóng...";
-                                    closeHint.className = "mt-6 text-white/60 text-sm animate-pulse cursor-pointer";
-                                    msgBox.appendChild(closeHint);
-
-                                    // Chuyển sang bước 3: sẵn sàng tắt
-                                    clickStep = 3;
-                                });
-                            }, 400);
-                        });
-                    }, 800); // Đợi message box mờ dần hiện ra rồi gõ (0.8s)
-
-                }, 10);
-            }, 800); // Đợi 0.8s cho lá thư mờ hẳn
-
-            // Bắn vài đợt sao băng tráng lệ liên tiếp
-            for (let i = 0; i < 5; i++) {
-                setTimeout(() => {
-                    shootingStars.push(createShootingStar());
-                }, i * 400 + 400); // Chờ lá thư biến mất bắt đầu bắn sao băng
-            }
-            // Không set clickStep = 2 ở đây nữa vì sẽ set = 3 sau khi gõ xong
-            clickStep = 2; // Tạm gọi là trạng thái đang gõ
-        }
-    } else if (clickStep === 3) {
-        // Chạm lần nữa để ẩn trọn vẹn lời chúc
-        let msgBox = document.getElementById('message-box');
-
-        if (msgBox.contains(e.target) || true) { // Bấm vào đâu cũng đóng được
-            msgBox.classList.add('is-hidden');
-            setTimeout(() => {
-                msgBox.style.display = 'none';
-
-                // Mọi thứ đã đóng, người dùng tiếp tục ngắm cảnh
-                // Không đưa phong thư trở lại nữa
-
-                // Đập bỏ text "Chạm để đóng" cũ
-                let hint = msgBox.querySelector('.mt-6');
-                if (hint) hint.remove();
-
-                // Set clickStep lên 4 hoặc giá trị nào đó để khóa mọi tương tác về sau
-                clickStep = 4;
-            }, 1000); // Thời gian fade out của box
-        }
-    }
+function hexToRgba(hex, a) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
-// Tạo hiệu ứng tỏa đóm sáng từ vị trí chạm
-function spawnBurst(x, y) {
-    let numSparks = 25; // Số lượng đốm sáng bung ra
-    let colors = ['#ffffff', '#ffb6c1', '#b3d9ff', '#ffd1dc', '#fff9e6', '#ffdf80'];
-    for (let i = 0; i < numSparks; i++) {
-        let angle = Math.random() * Math.PI * 2;
-        let speed = Math.random() * 5 + 2;
-        flowerParticles.push({
-            x: x,
-            y: y,
-            color: colors[Math.floor(Math.random() * colors.length)],
-            size: Math.random() * 3 + 1,
-            speedX: Math.cos(angle) * speed,
-            speedY: Math.sin(angle) * speed,
-            life: 1.5,
-            isBurst: true // Cờ riêng đánh dấu cho các hạt nổ bung
-        });
-    }
+function drawGlow(color, x, y, size, alpha) {
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(glow(color), x - size / 2, y - size / 2, size, size);
 }
+
+// ---------- Thiết lập ----------
 
 function resize() {
-    width = window.innerWidth;
-    height = window.innerHeight;
+    W = window.innerWidth;
+    H = window.innerHeight;
+    isMobile = W < 768;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
 
-    starsCanvas.width = width;
-    starsCanvas.height = height;
-    terrainCanvas.width = width;
-    terrainCanvas.height = height;
-    grassCanvas.width = width;
-    grassCanvas.height = height;
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
 
+    buildSky();
+    buildHills();
     initStars();
     initClouds();
     initGrass();
+    initFireflies();
+    particles = [];
+}
+
+const sunPos = () => ({
+    x: W * 0.5,
+    y: H * 0.6,
+    r: isMobile ? W * 0.13 : Math.min(W, H) * 0.075
+});
+
+function buildSky() {
+    const m = PARALLAX;
+    skyLayer = makeCanvas((W + m * 2) * DPR, (H + m * 2) * DPR);
+    const g = skyLayer.getContext('2d');
+    g.scale(DPR, DPR);
+    const w = W + m * 2, h = H + m * 2;
+
+    // Gradient chạng vạng: đêm sâu ở trên, hồng cam ở chân trời
+    const grad = g.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0.00, '#05040f');
+    grad.addColorStop(0.22, '#0c0a24');
+    grad.addColorStop(0.40, '#1d0f3a');
+    grad.addColorStop(0.52, '#45164a');
+    grad.addColorStop(0.60, '#8a2550');
+    grad.addColorStop(0.67, '#d4544e');
+    grad.addColorStop(0.73, '#f59a5a');
+    grad.addColorStop(0.80, '#ffc98a');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, w, h);
+
+    // Dải ngân hà chạy chéo bầu trời
+    g.globalCompositeOperation = 'lighter';
+    const ax = -w * 0.05, ay = h * 0.42, bx = w * 1.05, by = -h * 0.02;
+    const dx = bx - ax, dy = by - ay;
+    const len = Math.hypot(dx, dy);
+    const nx = -dy / len, ny = dx / len;
+    const band = Math.min(w, h) * 0.12;
+
+    const nebula = ['rgba(150, 120, 255, 0.05)', 'rgba(255, 140, 210, 0.04)', 'rgba(120, 190, 255, 0.04)'];
+    for (let i = 0; i < 70; i++) {
+        const t = Math.random();
+        const o = gauss() * band;
+        const x = ax + dx * t + nx * o, y = ay + dy * t + ny * o;
+        const r = rand(band * 0.6, band * 1.8);
+        const rg = g.createRadialGradient(x, y, 0, x, y, r);
+        rg.addColorStop(0, pick(nebula));
+        rg.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = rg;
+        g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+
+    const dust = Math.floor((w * h) / (isMobile ? 260 : 180));
+    for (let i = 0; i < dust; i++) {
+        const t = Math.random();
+        const o = gauss() * band * 1.2;
+        const x = ax + dx * t + nx * o, y = ay + dy * t + ny * o;
+        g.fillStyle = `rgba(255, 245, 255, ${rand(0.04, 0.22) * (1 - y / h)})`;
+        g.fillRect(x, y, rand(0.4, 1.1), rand(0.4, 1.1));
+    }
+
+    // Vệt tối nhẹ ở giữa dải ngân hà
+    g.globalCompositeOperation = 'source-over';
+    for (let i = 0; i < 40; i++) {
+        const t = Math.random();
+        const o = gauss() * band * 0.25;
+        const x = ax + dx * t + nx * o, y = ay + dy * t + ny * o;
+        const r = rand(band * 0.2, band * 0.5);
+        const rg = g.createRadialGradient(x, y, 0, x, y, r);
+        rg.addColorStop(0, 'rgba(5, 4, 15, 0.12)');
+        rg.addColorStop(1, 'rgba(5, 4, 15, 0)');
+        g.fillStyle = rg;
+        g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+}
+
+// Ba lớp đồi, xa → gần, có viền sáng hắt từ mặt trời
+function buildHills() {
+    const defs = [
+        { base: 0.60, dip: 0.04, amps: [0.03, 0.012, 0.006], top: '#4a1a46', bottom: '#1e0c24', rim: 0.45, depth: 0.25 },
+        { base: 0.69, amps: [0.04, 0.02, 0.008], top: '#25102a', bottom: '#110714', rim: 0.3, depth: 0.55 },
+        { base: 0.79, amps: [0.03, 0.018, 0.01], top: '#120814', bottom: '#060308', rim: 0.18, depth: 0.85 }
+    ];
+    const m = PARALLAX * 2;
+    hillLayers = defs.map(d => {
+        const w = W + m * 2;
+        const c = makeCanvas(w * DPR, H * DPR);
+        const g = c.getContext('2d');
+        g.scale(DPR, DPR);
+
+        const phases = d.amps.map(() => rand(0, Math.PI * 2));
+        const freqs = [rand(1.2, 2), rand(3, 5), rand(8, 12)];
+        const yAt = x => {
+            let y = d.base * H;
+            d.amps.forEach((a, i) => { y += Math.sin((x / w) * freqs[i] * Math.PI + phases[i]) * a * H; });
+            // Thung lũng ở giữa để mặt trời luôn ló ra
+            if (d.dip) y += Math.exp(-(((x / w - 0.5) / 0.14) ** 2)) * d.dip * H;
+            return y;
+        };
+
+        const path = new Path2D();
+        path.moveTo(0, H);
+        for (let x = 0; x <= w; x += 4) path.lineTo(x, yAt(x));
+        path.lineTo(w, H);
+        path.closePath();
+
+        const grad = g.createLinearGradient(0, (d.base - 0.06) * H, 0, H);
+        grad.addColorStop(0, d.top);
+        grad.addColorStop(1, d.bottom);
+        g.fillStyle = grad;
+        g.fill(path);
+
+        // Viền sáng đỉnh đồi, mạnh nhất ở phía mặt trời
+        const rim = g.createLinearGradient(0, 0, w, 0);
+        rim.addColorStop(0, 'rgba(255, 150, 130, 0)');
+        rim.addColorStop(0.5, `rgba(255, 180, 140, ${d.rim})`);
+        rim.addColorStop(1, 'rgba(255, 150, 130, 0)');
+        g.strokeStyle = rim;
+        g.lineWidth = 1.4;
+        g.beginPath();
+        for (let x = 0; x <= w; x += 4) x === 0 ? g.moveTo(x, yAt(x)) : g.lineTo(x, yAt(x));
+        g.stroke();
+
+        // Sương mờ ở chân đồi
+        g.save();
+        g.clip(path);
+        const mist = g.createLinearGradient(0, d.base * H, 0, (d.base + 0.16) * H);
+        mist.addColorStop(0, 'rgba(255, 140, 160, 0)');
+        mist.addColorStop(0.5, `rgba(255, 140, 160, ${0.06 * (1 - d.depth)})`);
+        mist.addColorStop(1, 'rgba(255, 140, 160, 0)');
+        g.fillStyle = mist;
+        g.fillRect(0, d.base * H, w, 0.16 * H);
+        g.restore();
+
+        return { canvas: c, depth: d.depth, margin: m };
+    });
 }
 
 function initStars() {
     stars = [];
-    let isMobile = width < 768;
-    // Thiên hà rõ và phân tán đều
-    const numStars = Math.floor((width * height) / (isMobile ? 800 : 600));
-
-    for (let i = 0; i < numStars; i++) {
-        let x = Math.random() * width;
-        let y = Math.random() * height;
-
+    const n = Math.floor((W * H) / (isMobile ? 1400 : 1100));
+    const colors = ['#ffffff', '#ffffff', '#ffffff', '#cfe0ff', '#ffe6f0', '#fff3d6'];
+    for (let i = 0; i < n; i++) {
+        const y = Math.pow(Math.random(), 1.4) * H * 0.62;
+        const bright = Math.random() > 0.96;
         stars.push({
-            x: x,
-            y: y,
-            // Một số sao lác đác sẽ to và sáng mạnh hơn hẳn giống trong ảnh
-            size: Math.random() > 0.95 ? Math.random() * 1.5 + 1.2 : Math.random() * 1.2 + 0.3,
-            alpha: Math.random(),
-            speed: (Math.random() * 0.02 + 0.005) * (Math.random() > 0.5 ? 1 : -1),
-            color: Math.random() > 0.8 ? '#b8d4ff' : '#ffffff'
+            x: Math.random() * W,
+            y,
+            size: bright ? rand(1.1, 1.9) : rand(0.3, 1.1),
+            bright,
+            phase: rand(0, Math.PI * 2),
+            speed: rand(0.01, 0.04),
+            fade: 1 - y / (H * 0.66),
+            color: pick(colors)
         });
     }
-
     shootingStars = [];
-    // Giảm số lượng sao băng để bầu trời tĩnh lặng hơn
-    for (let i = 0; i < 2; i++) {
-        shootingStars.push(createShootingStar());
-    }
 }
 
-function createShootingStar() {
-    // Xác định sao băng xuất phát từ nửa trên của các mép màn hình (trái, phải hoặc trên cùng)
-    let startX = Math.random() * (width * 1.2) - (width * 0.1);
-    let startY = Math.random() * (height * 0.5) - (height * 0.2);
-
-    // Hướng xéo xuống ngẫu nhiên
-    let angle = (Math.PI / 6) + (Math.random() * (Math.PI / 4));
-
-    // 50% cơ may sao băng sẽ bay từ trái sang phải, 50% chiều ngược lại
-    let directionX = Math.random() > 0.5 ? 1 : -1;
-
+function createShootingStar(x, y) {
+    const dir = Math.random() > 0.5 ? 1 : -1;
+    const angle = rand(Math.PI / 7, Math.PI / 4);
     return {
-        x: startX,
-        y: startY,
-        len: Math.random() * 100 + 80,
-        speed: Math.random() * 20 + 15,
-        angle: angle,
-        directionX: directionX,
-        opacity: 0,
-        active: false,
-        delay: Math.random() * 300 + 50
+        x: x ?? rand(W * 0.1, W * 0.9),
+        y: y ?? rand(0, H * 0.25),
+        vx: Math.cos(angle) * dir,
+        vy: Math.sin(angle),
+        speed: rand(9, 16),
+        len: rand(90, 200),
+        life: 1
     };
 }
 
 function initClouds() {
     clouds = [];
-    let isMobile = width < 768;
-    let numClouds = isMobile ? 6 : 12;
-    for (let i = 0; i < numClouds; i++) {
-        clouds.push({
-            x: Math.random() * width,
-            y: Math.random() * height * 0.45,
-            size: Math.random() * 50 + 30, // base size
-            speed: Math.random() * 0.3 + 0.1,
-            opacity: Math.random() * 0.25 + 0.15,
-            scaleX: Math.random() * 1.5 + 1.5 // make them stretching horizontally
-        });
-    }
+    const n = isMobile ? 6 : 10;
+    for (let i = 0; i < n; i++) clouds.push(makeCloud(Math.random() * W));
 }
 
-function drawTerrainAndClouds() {
-    terrainCtx.clearRect(0, 0, width, height);
+function makeCloud(x) {
+    const y = rand(0.12, 0.52) * H;
+    const s = rand(40, 90) * (isMobile ? 0.7 : 1);
+    const w = s * rand(4, 7), h = s * 1.6;
+    const c = makeCanvas(w * DPR, h * DPR);
+    const g = c.getContext('2d');
+    g.scale(DPR, DPR);
 
-    let isMobile = width < 768;
-
-    // 1. Vẽ Mặt Trời Hoàng Hôn (lấp ló ở chân trời chỉ còn dư một chút)
-    let sunX = width * 0.5;
-    // Chìm sâu xuống đồi (ngọn đồi ở khoảng y=0.55), nên dìm mặt trời xuống y=0.62 hoặc hơn
-    let sunY = height * 0.61;
-    // Kích thước mặt trời to hơn gấp đôi trên mobile để nổi bật vừa vặn màn hình
-    let sunSize = isMobile ? width * 0.22 : Math.min(width, height) * 0.12;
-
-    // Hào quang tỏa sáng của mặt trời
-    let gradSun = terrainCtx.createRadialGradient(sunX, sunY, sunSize * 0.2, sunX, sunY, sunSize * 2.5);
-    gradSun.addColorStop(0, 'rgba(255, 230, 150, 0.9)');
-    gradSun.addColorStop(0.2, 'rgba(255, 120, 40, 0.6)');
-    gradSun.addColorStop(0.6, 'rgba(180, 30, 20, 0.15)');
-    gradSun.addColorStop(1, 'rgba(180, 30, 20, 0)');
-
-    terrainCtx.fillStyle = gradSun;
-    terrainCtx.beginPath();
-    terrainCtx.arc(sunX, sunY, sunSize * 2.5, 0, Math.PI * 2);
-    terrainCtx.fill();
-
-    // Lõi mặt trời rực rỡ
-    terrainCtx.fillStyle = '#ffdf80';
-    terrainCtx.beginPath();
-    terrainCtx.arc(sunX, sunY, sunSize * 0.6, 0, Math.PI * 2);
-    terrainCtx.shadowColor = '#ff8800';
-    terrainCtx.shadowBlur = 40;
-    terrainCtx.fill();
-    terrainCtx.shadowBlur = 0;
-
-    // 2. Vẽ đám mây bay
-    clouds.forEach(c => {
-        c.x -= c.speed; // Mây bay từ phải qua trái
-        if (c.x < -c.size * c.scaleX * 2) c.x = width + c.size * c.scaleX * 2;
-
-        terrainCtx.fillStyle = `rgba(180, 80, 70, ${c.opacity})`; // Mây màu hồng sậm để hợp với trời tối
-        terrainCtx.beginPath();
-        terrainCtx.save();
-        terrainCtx.translate(c.x, c.y);
-        terrainCtx.scale(c.scaleX, 1);
-
-        // Vẽ các gợn mây
-        terrainCtx.arc(0, 0, c.size, 0, Math.PI * 2);
-        terrainCtx.arc(c.size * 0.5, -c.size * 0.4, c.size * 0.8, 0, Math.PI * 2);
-        terrainCtx.arc(c.size * 1.2, 0, c.size * 0.9, 0, Math.PI * 2);
-
-        terrainCtx.fill();
-        terrainCtx.restore();
-    });
-
-    // 3. Vẽ mặt đất có NGỌN ĐỒI che mặt trời
-    terrainCtx.fillStyle = '#0a0305'; // Đất tối
-    terrainCtx.beginPath();
-    terrainCtx.moveTo(0, height * 0.7);
-
-    // Đường lượn lên đỉnh đồi ở giữa (x=0.5, y=0.55 che ngang nửa mặt trời)
-    terrainCtx.bezierCurveTo(width * 0.15, height * 0.7, width * 0.35, height * 0.55, width * 0.5, height * 0.55);
-    // Đường lượn xuống bên phải
-    terrainCtx.bezierCurveTo(width * 0.65, height * 0.55, width * 0.85, height * 0.65, width, height * 0.65);
-
-    terrainCtx.lineTo(width, height);
-    terrainCtx.lineTo(0, height);
-    terrainCtx.fill();
-
-    // Lớp đồi thứ hai phía trước để tạo chi tiết khuất lấp
-    terrainCtx.fillStyle = '#110508';
-    terrainCtx.beginPath();
-    terrainCtx.moveTo(0, height * 0.78);
-    terrainCtx.bezierCurveTo(width * 0.2, height * 0.65, width * 0.4, height * 0.8, width * 0.6, height * 0.68);
-    terrainCtx.bezierCurveTo(width * 0.8, height * 0.58, width * 0.9, height * 0.72, width, height * 0.75);
-    terrainCtx.lineTo(width, height);
-    terrainCtx.lineTo(0, height);
-    terrainCtx.fill();
-
-    // Phủ mờ phần chân đồi hòa vào bóng tối để làm nền cho cỏ
-    let gradGr = terrainCtx.createLinearGradient(0, height * 0.7, 0, height);
-    gradGr.addColorStop(0, 'rgba(17, 5, 8, 0)'); // Trong suốt ở đỉnh dải màu (không còn vệt cắt ngang)
-    gradGr.addColorStop(1, '#030102'); // Đen kịt ở dưới đáy
-    terrainCtx.fillStyle = gradGr;
-    terrainCtx.fillRect(0, height * 0.6, width, height * 0.4);
+    // Càng gần chân trời mây càng ấm và sáng
+    const warm = y / (H * 0.55);
+    const lit = [Math.round(140 + 115 * warm), Math.round(70 + 80 * warm), Math.round(120 - 20 * warm)];
+    g.filter = `blur(${Math.round(s * 0.18)}px)`;
+    const puffs = Math.floor(rand(10, 16));
+    for (let i = 0; i < puffs; i++) {
+        const px = rand(s * 1.1, w - s * 1.1);
+        const py = h * 0.55 + gauss() * s * 0.12;
+        const r = rand(s * 0.35, s * 0.6) * (1 - Math.abs(px / w - 0.5));
+        const rg = g.createRadialGradient(px, py + r * 0.3, 0, px, py, r * 1.6);
+        rg.addColorStop(0, `rgba(${lit[0]}, ${lit[1]}, ${lit[2]}, 0.22)`);
+        rg.addColorStop(0.6, `rgba(${lit[0] - 40}, ${lit[1] - 30}, ${lit[2]}, 0.08)`);
+        rg.addColorStop(1, 'rgba(60, 20, 60, 0)');
+        g.fillStyle = rg;
+        g.beginPath();
+        g.ellipse(px, py, r * 2.4, r, 0, 0, Math.PI * 2);
+        g.fill();
+    }
+    return { canvas: c, x, y, w, h, speed: rand(0.06, 0.22), alpha: rand(0.6, 1), depth: rand(0.1, 0.35) };
 }
 
 function initGrass() {
     grassBlades = [];
-    flowerParticles = [];
-    let isMobile = width < 768;
-
-    // Tăng mật độ cỏ cho điện thoại vì chiều ngang hẹp
-    // Desktop giữ nguyên mật độ 1.5
-    let numGrass = isMobile ? Math.floor(width * 2.5) : Math.floor(width * 1.5);
-
-    for (let i = 0; i < numGrass; i++) {
-        let layer = Math.random();
-        let gX = Math.random() * width;
-
-        let l = 3 + layer * 10;
-        let color = `hsl(140, 40%, ${l}%)`;
-        let hasFlower = false;
-        let flowerColor = '';
-        let flowerSize = 0;
-
-        // Cánh đồng hoa hoang dã điểm xuyết trắng, xanh nhạt, hồng
-        if (layer > 0.1 && Math.random() > 0.25) {
-            hasFlower = true;
-            // Trắng nguyên bản + Xanh dương nhạt + Hồng phấn
-            let colors = ['#ffffff', '#fcf6db', '#fff9e6', '#b3d9ff', '#d9e8ff', '#ffb6c1', '#ffd1dc', '#fdfdfd'];
-            flowerColor = colors[Math.floor(Math.random() * colors.length)];
-            flowerSize = (layer * 3.0) + Math.random() * 4.0 + 2.0; // Hoa to hơn
-        }
-
-        // Chiều cao của cỏ bình thường
-        let baseHeight = (height * 0.03 + layer * (height * 0.15));
-
+    const n = Math.floor(W * (isMobile ? 1.8 : 1.2));
+    const flowerColors = ['#ffffff', '#fff4e0', '#ffd6e4', '#ffb3c8', '#c9dcff', '#e8d6ff', '#ffe3a8'];
+    for (let i = 0; i < n; i++) {
+        const layer = Math.random();
+        const hasFlower = layer > 0.2 && Math.random() > 0.55;
         grassBlades.push({
-            x: gX,
-            y: height + 10,
-            baseHeight: baseHeight + Math.random() * (height * 0.05),
-            layer: layer,
-            stiffness: Math.random() * 0.4 + 0.6,
-            color: color,
-            hasFlower: hasFlower,
-            flowerColor: flowerColor,
-            flowerSize: flowerSize,
-            swayOffset: Math.random() * Math.PI * 2
+            x: rand(-20, W + 20),
+            y: H + 10,
+            h: H * 0.03 + layer * H * 0.15 + Math.random() * H * 0.04,
+            layer,
+            stiffness: rand(0.6, 1),
+            color: `hsl(${rand(150, 170)}, ${30 + layer * 15}%, ${3 + layer * 9}%)`,
+            hasFlower,
+            flowerColor: hasFlower ? pick(flowerColors) : null,
+            flowerSize: hasFlower ? layer * 2.6 + rand(2, 5) : 0,
+            sway: rand(0, Math.PI * 2)
         });
     }
     grassBlades.sort((a, b) => a.layer - b.layer);
+}
 
-    // Đom đóm bay lượn trên cỏ
+function initFireflies() {
     fireflies = [];
-    // Rút gọn bớt số lượng đom đóm
-    for (let i = 0; i < 30; i++) {
+    const n = isMobile ? 22 : 36;
+    for (let i = 0; i < n; i++) {
         fireflies.push({
-            x: Math.random() * width,
-            y: height - Math.random() * (height * 0.4),
-            size: Math.random() * 2 + 1,
-            // Tăng tốc độ cơ bản của đom đóm
-            speedX: (Math.random() - 0.5) * 1.5,
-            speedY: (Math.random() - 0.5) * 1.5,
-            opacity: Math.random(),
-            // Tông màu xanh lá phát sáng (lime green / neon green)
-            color: Math.random() > 0.5 ? '#7cfc00' : '#32cd32'
+            x: Math.random() * W,
+            y: H - Math.random() * H * 0.35,
+            size: rand(1, 2.4),
+            seed: rand(0, 1000),
+            blink: rand(0.02, 0.06),
+            color: pick(['#d9ff7a', '#b6ff5c', '#fff3a0'])
         });
     }
 }
 
-function drawTulip(ctx, x, y, size, color) {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
+// ---------- Vẽ ----------
 
-    // Bầu trái
-    ctx.bezierCurveTo(x - size * 1.5, y - size * 0.2, x - size * 1.5, y - size * 1.8, x - size * 0.6, y - size * 1.8);
-    // Lượn nhấp nhô củ tỏi ở cánh giữa trái
-    ctx.bezierCurveTo(x - size * 0.4, y - size * 1.8, x - size * 0.3, y - size * 2.2, x, y - size * 2.2);
-    // Lượn nhấp nhô ở cánh giữa phải
-    ctx.bezierCurveTo(x + size * 0.3, y - size * 2.2, x + size * 0.4, y - size * 1.8, x + size * 0.6, y - size * 1.8);
-    // Bầu phải
-    ctx.bezierCurveTo(x + size * 1.5, y - size * 1.8, x + size * 1.5, y - size * 0.2, x, y);
-
-    ctx.fill();
-
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 8;
-    ctx.fill();
-    ctx.shadowBlur = 0;
+function drawSky() {
+    const m = PARALLAX;
+    ctx.drawImage(skyLayer, -m - pointer.x * 0.15, -m - pointer.y * 0.15, W + m * 2, H + m * 2);
 }
 
-function animate() {
-    time += 1;
-
-    // 1. NGÔI SAO LẤP LÁNH
-    starsCtx.clearRect(0, 0, width, height);
-    stars.forEach(star => {
-        star.alpha += star.speed;
-        if (star.alpha >= 1) { star.alpha = 1; star.speed *= -1; }
-        else if (star.alpha <= 0.1) { star.alpha = 0.1; star.speed *= -1; }
-
-        starsCtx.fillStyle = star.color;
-        starsCtx.globalAlpha = star.alpha;
-        starsCtx.beginPath();
-        starsCtx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
-        starsCtx.fill();
-    });
-    starsCtx.globalAlpha = 1;
-
-    // 2. SAO BĂNG
-    shootingStars.forEach(ss => {
-        if (!ss.active) {
-            ss.delay--;
-            if (ss.delay <= 0) {
-                ss.active = true;
-                ss.opacity = 1;
-            }
-        } else {
-            ss.x -= Math.cos(ss.angle) * ss.speed * ss.directionX;
-            ss.y += Math.sin(ss.angle) * ss.speed;
-            ss.opacity -= 0.012;
-
-            if (ss.opacity <= 0 || ss.y > height || ss.x < -200 || ss.x > width + 200) {
-                Object.assign(ss, createShootingStar());
-            } else {
-                starsCtx.save();
-                starsCtx.globalAlpha = ss.opacity;
-
-                let tailX = ss.x + Math.cos(ss.angle) * ss.len * ss.directionX;
-                let tailY = ss.y - Math.sin(ss.angle) * ss.len;
-
-                let grad = starsCtx.createLinearGradient(ss.x, ss.y, tailX, tailY);
-                grad.addColorStop(0, '#ffffff');
-                grad.addColorStop(1, 'rgba(255,255,255,0)');
-
-                starsCtx.strokeStyle = grad;
-                starsCtx.lineWidth = 1.8;
-                starsCtx.lineCap = 'round';
-                starsCtx.beginPath();
-                starsCtx.moveTo(ss.x, ss.y);
-                starsCtx.lineTo(tailX, tailY);
-                starsCtx.stroke();
-                starsCtx.restore();
-            }
+function drawStars() {
+    const ox = -pointer.x * 0.2, oy = -pointer.y * 0.2;
+    for (const s of stars) {
+        const tw = 0.55 + 0.45 * Math.sin(time * s.speed + s.phase);
+        const a = Math.max(0, tw * s.fade);
+        if (a < 0.02) continue;
+        const x = s.x + ox, y = s.y + oy;
+        if (s.bright) {
+            drawGlow(s.color, x, y, s.size * 10, a * 0.6);
+            // Tia sáng chữ thập cho sao lớn
+            ctx.globalAlpha = a * 0.35;
+            ctx.fillStyle = s.color;
+            ctx.fillRect(x - s.size * 4, y - 0.4, s.size * 8, 0.8);
+            ctx.fillRect(x - 0.4, y - s.size * 4, 0.8, s.size * 8);
         }
-    });
+        ctx.globalAlpha = a;
+        ctx.fillStyle = s.color;
+        ctx.beginPath();
+        ctx.arc(x, y, s.size * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+}
 
-    // 3. MÂY BAY VÀ MẶT TRỜI (TERRAIN CANVAS MỚI)
-    drawTerrainAndClouds();
+function drawShootingStars() {
+    if (Math.random() < 0.004 && shootingStars.length < 3) shootingStars.push(createShootingStar());
 
-    // 4. CỎ & ĐOM ĐÓM
-    grassCtx.clearRect(0, 0, width, height);
-    let globalWind = Math.sin(time * 0.015) * 0.2;
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = shootingStars.length - 1; i >= 0; i--) {
+        const s = shootingStars[i];
+        s.x += s.vx * s.speed;
+        s.y += s.vy * s.speed;
+        s.life -= 0.012;
+        if (s.life <= 0 || s.y > H * 0.7) { shootingStars.splice(i, 1); continue; }
 
-    grassBlades.forEach(g => {
-        let wind = globalWind + Math.sin(time * 0.02 + g.x * 0.01 + g.swayOffset) * 0.15;
-        wind *= g.stiffness * g.layer;
+        const tx = s.x - s.vx * s.len, ty = s.y - s.vy * s.len;
+        const grad = ctx.createLinearGradient(s.x, s.y, tx, ty);
+        grad.addColorStop(0, `rgba(255, 255, 255, ${s.life})`);
+        grad.addColorStop(0.3, `rgba(255, 210, 230, ${s.life * 0.4})`);
+        grad.addColorStop(1, 'rgba(255, 200, 230, 0)');
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(tx, ty);
+        ctx.stroke();
+        drawGlow('#ffffff', s.x, s.y, 16, s.life);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+}
 
-        grassCtx.beginPath();
-        grassCtx.moveTo(g.x, g.y);
-        grassCtx.strokeStyle = g.color;
-        grassCtx.lineWidth = 0.5 + g.layer * 2;
-        grassCtx.lineCap = 'round';
+function drawSun() {
+    const { x: sx, y: sy, r } = sunPos();
+    const x = sx - pointer.x * 0.3, y = sy - pointer.y * 0.3;
+    const pulse = 1 + Math.sin(time * 0.01) * 0.04;
 
-        let cx = g.x;
-        let cy = g.y;
-        let segments = 3 + Math.floor(g.layer * 2);
-        let segmentLen = g.baseHeight / segments;
+    ctx.globalCompositeOperation = 'lighter';
 
-        for (let j = 1; j <= segments; j++) {
-            let angle = wind * (j / segments);
-            cx += Math.sin(angle) * segmentLen;
-            cy -= Math.cos(angle) * segmentLen;
-            grassCtx.lineTo(cx, cy);
+    // Quầng sáng rộng trải dọc chân trời
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(3.2, 1);
+    let g = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 4);
+    g.addColorStop(0, 'rgba(255, 170, 90, 0.35)');
+    g.addColorStop(0.5, 'rgba(255, 90, 80, 0.1)');
+    g.addColorStop(1, 'rgba(255, 60, 80, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Hào quang tròn
+    g = ctx.createRadialGradient(x, y, r * 0.5, x, y, r * 3 * pulse);
+    g.addColorStop(0, 'rgba(255, 220, 150, 0.7)');
+    g.addColorStop(0.3, 'rgba(255, 130, 70, 0.3)');
+    g.addColorStop(1, 'rgba(255, 80, 60, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 3 * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalCompositeOperation = 'source-over';
+
+    // Lõi mặt trời
+    g = ctx.createRadialGradient(x, y - r * 0.3, 0, x, y, r);
+    g.addColorStop(0, '#fffbe8');
+    g.addColorStop(0.6, '#ffe2a0');
+    g.addColorStop(1, '#ffb070');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+function drawClouds() {
+    for (const c of clouds) {
+        c.x -= c.speed;
+        if (c.x < -c.w - PARALLAX) {
+            Object.assign(c, makeCloud(W + PARALLAX));
         }
-        grassCtx.stroke();
+        ctx.globalAlpha = c.alpha;
+        ctx.drawImage(c.canvas, c.x - pointer.x * c.depth, c.y - c.h / 2 - pointer.y * c.depth, c.w, c.h);
+    }
+    ctx.globalAlpha = 1;
+}
 
-        if (g.hasFlower) {
-            // Lưu trạng thái canvas để xoay bông hoa theo thân cỏ
-            grassCtx.save();
-            grassCtx.translate(cx, cy);
+function drawHills() {
+    for (const l of hillLayers) {
+        ctx.drawImage(l.canvas, -l.margin - pointer.x * l.depth, -pointer.y * l.depth * 0.5, W + l.margin * 2, H);
+    }
+    // Bóng tối phủ chân màn hình làm nền cho cỏ
+    const g = ctx.createLinearGradient(0, H * 0.72, 0, H);
+    g.addColorStop(0, 'rgba(4, 2, 6, 0)');
+    g.addColorStop(1, 'rgba(4, 2, 6, 0.95)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, H * 0.72, W, H * 0.28);
+}
 
-            // Xoay bông hoa theo góc nghiêng của ngọn gió (wind) cộng với một chút ngẫu nhiên nhỏ giật giật
-            let flowerAngle = wind * 0.8 + Math.sin(time * 0.05 + g.x) * 0.05;
-            grassCtx.rotate(flowerAngle);
+function drawFlower(x, y, size, color, angle) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-size * 1.5, -size * 0.2, -size * 1.5, -size * 1.8, -size * 0.6, -size * 1.8);
+    ctx.bezierCurveTo(-size * 0.4, -size * 1.8, -size * 0.3, -size * 2.2, 0, -size * 2.2);
+    ctx.bezierCurveTo(size * 0.3, -size * 2.2, size * 0.4, -size * 1.8, size * 0.6, -size * 1.8);
+    ctx.bezierCurveTo(size * 1.5, -size * 1.8, size * 1.5, -size * 0.2, 0, 0);
+    ctx.fill();
+    // Ánh sáng hắt nhẹ trên cánh hoa
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(-size * 0.35, -size * 1.3, size * 0.25, size * 0.5, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+}
 
-            // Vẽ hoa tại gốc toạ độ (0, 0) vì đã translate tới cx, cy
-            drawTulip(grassCtx, 0, 0, g.flowerSize, g.flowerColor);
+function drawGrass() {
+    const wind = Math.sin(time * 0.012) * 0.22 + Math.sin(time * 0.031) * 0.06;
+    const flowers = [];
 
-            grassCtx.restore();
+    ctx.save();
+    ctx.translate(-pointer.x * 1.1, 0);
+    ctx.lineCap = 'round';
 
-            if (Math.random() > 0.995) {
-                flowerParticles.push({
-                    x: cx,
-                    y: cy,
-                    color: g.flowerColor,
-                    size: Math.random() * 2.5 + 1.0,
-                    speedX: (Math.random() - 0.5) * 0.5,
-                    speedY: -Math.random() * 1.5 - 0.5,
-                    life: 1,
-                    isBurst: false
+    for (const b of grassBlades) {
+        let w = wind + Math.sin(time * 0.02 + b.x * 0.01 + b.sway) * 0.15;
+        w *= b.stiffness * b.layer;
+
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 0.5 + b.layer * 2;
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.y);
+        let cx = b.x, cy = b.y;
+        const segs = 3 + Math.floor(b.layer * 2);
+        const sl = b.h / segs;
+        for (let j = 1; j <= segs; j++) {
+            const a = w * (j / segs);
+            cx += Math.sin(a) * sl;
+            cy -= Math.cos(a) * sl;
+            ctx.lineTo(cx, cy);
+        }
+        ctx.stroke();
+
+        if (b.hasFlower) {
+            drawGlow(b.flowerColor, cx, cy - b.flowerSize, b.flowerSize * 6, 0.12 * b.layer);
+            ctx.globalAlpha = 0.6 + b.layer * 0.4;
+            drawFlower(cx, cy, b.flowerSize, b.flowerColor, w * 0.8 + Math.sin(time * 0.05 + b.x) * 0.05);
+            ctx.globalAlpha = 1;
+
+            // Phấn hoa bay lên
+            if (Math.random() > 0.9985) {
+                particles.push({
+                    x: cx - pointer.x * 1.1, y: cy, color: b.flowerColor,
+                    size: rand(1, 2.4), vx: rand(-0.25, 0.25), vy: rand(-1.4, -0.4),
+                    life: 1, decay: 0.005, burst: false
                 });
             }
         }
-    });
-
-    for (let i = flowerParticles.length - 1; i >= 0; i--) {
-        let p = flowerParticles[i];
-
-        if (p.isBurst) {
-            // Hạt chạm nổ ma sát không khí chậm lại, chịu đôi chút trọng lực
-            p.x += p.speedX;
-            p.y += p.speedY;
-            p.speedX *= 0.92; // Ma sát không khí
-            p.speedY *= 0.92;
-            p.speedY += 0.08; // Trọng lực nhẹ rơi xuống
-            p.life -= 0.015;
-        } else {
-            // Hạt hoa thông thường mọc từ dưới cỏ
-            p.x += p.speedX + Math.sin(time * 0.05 + p.y) * 0.5;
-            p.y += p.speedY;
-            p.life -= 0.005;
-        }
-
-        if (p.life <= 0) {
-            flowerParticles.splice(i, 1);
-            continue;
-        }
-
-        grassCtx.globalAlpha = Math.max(0, p.life);
-        grassCtx.fillStyle = p.color;
-        grassCtx.beginPath();
-        grassCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        grassCtx.fill();
-        grassCtx.shadowColor = p.color;
-        grassCtx.shadowBlur = 5;
-        grassCtx.fill();
-        grassCtx.shadowBlur = 0;
     }
-    grassCtx.globalAlpha = 1;
+    ctx.restore();
+}
 
-    // Vẽ đom đóm
-    fireflies.forEach(f => {
-        // Tăng độ dao động bằng hàm sin để nó bay lảo đảo ngẫu nhiên nhanh hơn
-        f.x += f.speedX + Math.sin(time * 0.03 + f.y) * 1.5;
-        f.y += f.speedY + Math.cos(time * 0.02 + f.x) * 0.8;
+function drawParticles() {
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        if (p.burst) {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vx *= 0.93;
+            p.vy = p.vy * 0.93 + 0.05;
+        } else {
+            p.x += p.vx + Math.sin(time * 0.04 + p.y * 0.05) * 0.4;
+            p.y += p.vy;
+        }
+        p.life -= p.decay;
+        if (p.life <= 0) { particles.splice(i, 1); continue; }
+        const a = Math.min(1, p.life);
+        const x = p.x;
+        drawGlow(p.color, x, p.y, p.size * 8, a * 0.7);
+        ctx.globalAlpha = a;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(x, p.y, p.size * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+}
 
-        if (f.y > height) f.y = height - Math.random() * (height * 0.25);
-        if (f.y < height - (height * 0.35)) f.speedY = Math.abs(f.speedY);
-        if (f.x < 0) f.x = width;
-        if (f.x > width) f.x = 0;
+function drawFireflies() {
+    ctx.globalCompositeOperation = 'lighter';
+    for (const f of fireflies) {
+        const t = time * 0.01 + f.seed;
+        f.x += Math.sin(t * 1.3) * 0.6 + Math.cos(t * 0.7) * 0.4;
+        f.y += Math.cos(t * 1.1) * 0.4 + Math.sin(t * 0.5) * 0.2;
+        if (f.x < -10) f.x = W + 10;
+        if (f.x > W + 10) f.x = -10;
+        if (f.y < H * 0.6) f.y += 1;
+        if (f.y > H) f.y -= 1;
 
-        f.opacity += Math.sin(time * 0.08 + f.x) * 0.1;
-        let a = Math.max(0.05, Math.min(0.8, f.opacity));
+        const a = Math.max(0, Math.sin(time * f.blink + f.seed)) ** 2;
+        if (a < 0.02) continue;
+        const x = f.x - pointer.x * 0.9;
+        drawGlow(f.color, x, f.y, f.size * 14, a * 0.8);
+        ctx.globalAlpha = a;
+        ctx.fillStyle = '#fffbe0';
+        ctx.beginPath();
+        ctx.arc(x, f.y, f.size * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+}
 
-        grassCtx.fillStyle = f.color;
-        grassCtx.globalAlpha = a;
-        grassCtx.beginPath();
-        grassCtx.arc(f.x, f.y, f.size, 0, Math.PI * 2);
-        grassCtx.fill();
-        grassCtx.shadowColor = f.color;
-        grassCtx.shadowBlur = 10;
-        grassCtx.fill();
-        grassCtx.shadowBlur = 0;
-    });
-    grassCtx.globalAlpha = 1;
+function animate() {
+    time++;
+    pointer.x += (pointer.tx - pointer.x) * 0.04;
+    pointer.y += (pointer.ty - pointer.y) * 0.04;
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    drawSky();
+    drawStars();
+    drawShootingStars();
+    drawSun();
+    drawClouds();
+    drawHills();
+    drawGrass();
+    drawFireflies();
+    drawParticles();
 
     requestAnimationFrame(animate);
 }
 
-init();
+// ---------- Tương tác ----------
+
+function burst(x, y) {
+    const colors = ['#ffffff', '#ffd6e4', '#ffb3c8', '#c9dcff', '#ffe3a8', '#e8d6ff'];
+    for (let i = 0; i < 34; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const sp = rand(1.5, 6.5);
+        particles.push({
+            x, y, color: pick(colors), size: rand(1, 3),
+            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+            life: 1.4, decay: rand(0.012, 0.022), burst: true
+        });
+    }
+    // Chạm lên bầu trời thì có thêm sao băng
+    if (y < H * 0.6) {
+        for (let i = 0; i < 2; i++) {
+            setTimeout(() => shootingStars.push(createShootingStar()), i * 250);
+        }
+    }
+}
+
+const music = document.getElementById('bg-music');
+const musicBtn = document.getElementById('music-toggle');
+let userMuted = false;
+
+function playMusic() {
+    const p = music.play();
+    if (p) p.then(() => musicBtn.classList.add('playing')).catch(() => {});
+}
+
+musicBtn.addEventListener('pointerdown', e => e.stopPropagation());
+musicBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (music.paused) {
+        userMuted = false;
+        playMusic();
+    } else {
+        music.pause();
+        userMuted = true;
+        musicBtn.classList.remove('playing');
+    }
+});
+
+window.addEventListener('pointerdown', e => {
+    if (!userMuted && music.paused) playMusic();
+    burst(e.clientX, e.clientY);
+});
+
+window.addEventListener('pointermove', e => {
+    if (e.pointerType !== 'mouse') return;
+    pointer.tx = (e.clientX / W - 0.5) * 2 * PARALLAX;
+    pointer.ty = (e.clientY / H - 0.5) * 2 * PARALLAX * 0.5;
+});
+
+window.addEventListener('deviceorientation', e => {
+    if (e.gamma == null) return;
+    pointer.tx = Math.max(-1, Math.min(1, e.gamma / 30)) * PARALLAX;
+    pointer.ty = Math.max(-1, Math.min(1, (e.beta - 45) / 30)) * PARALLAX * 0.5;
+});
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(resize, 150);
+});
+
+resize();
+playMusic();
+requestAnimationFrame(animate);
