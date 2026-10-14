@@ -562,12 +562,11 @@
     function buildHillLayers() {
         const defs = [
             { mountain: true, base: 0.585, rim: 0.25, depth: 0.12 },
-            { base: 0.60, dip: 0.04, amps: [0.03, 0.012, 0.006], rim: 0.45, depth: 0.25, trees: 1, tufts: 1.2 },
-            { base: 0.69, amps: [0.04, 0.02, 0.008], rim: 0.3, depth: 0.55, trees: 2, dots: 0.5, tufts: 2.2 },
-            { base: 0.79, amps: [0.03, 0.018, 0.01], rim: 0.18, depth: 0.85, dots: 0.8, tufts: 3.5 }
+            { base: 0.60, dip: 0.04, amps: [0.03, 0.012, 0.006], rim: 0.45, depth: 0.25, meadow: 3, dots: 0.25, tufts: 1.4 },
+            { base: 0.69, amps: [0.04, 0.02, 0.008], rim: 0.3, depth: 0.55, meadow: 5, dots: 0.7, tufts: 2.6 },
+            { base: 0.79, amps: [0.03, 0.018, 0.01], rim: 0.18, depth: 0.85, meadow: 6, dots: 0.9, tufts: 4 }
         ];
         const rimX = Math.min(0.85, Math.max(0.15, pal.bx));
-        const lightDir = pal.bx < 0.5 ? -1 : 1;
         const m = PARALLAX * 2;
         const L = pal.light;
 
@@ -655,6 +654,34 @@
             g.stroke(ridge);
             g.filter = 'none';
 
+            // Thảm cỏ phủ kín sườn đồi: ngọn cỏ nhỏ ở gần đỉnh (xa) và to dần xuống chân đồi (gần).
+            // Chia ba sắc độ, mỗi sắc độ một path để vẽ nhanh.
+            if (d.meadow) {
+                const tones = [
+                    mix(top, pal.rim, 0.18 + 0.12 * L),
+                    mix(top, bottom, 0.3),
+                    mix(bottom, [0, 0, 0], 0.15)
+                ];
+                const paths = tones.map(() => new Path2D());
+                const n = Math.round(w * d.meadow * (isMobile ? 1.3 : 1));
+                for (let i = 0; i < n; i++) {
+                    const x = rand(0, w);
+                    const dy = Math.pow(rng(), 1.25) * 0.2 * H;
+                    const y = yAt(x) + dy + 1;
+                    const len = (1.2 + dy * 0.09) * (0.5 + d.depth) * rand(0.6, 1.3);
+                    const a = rand(-0.35, 0.35) + 0.12;
+                    const p = paths[Math.min(2, Math.floor(rng() * 2.2 + dy / (0.2 * H) * 0.9))];
+                    p.moveTo(x, y);
+                    p.quadraticCurveTo(x + Math.sin(a) * len * 0.3, y - len * 0.6, x + Math.sin(a) * len, y - Math.cos(a) * len);
+                }
+                g.lineCap = 'round';
+                g.lineWidth = 0.5 + d.depth * 0.7;
+                tones.forEach((t, i) => {
+                    g.strokeStyle = rgba(t, 0.55);
+                    g.stroke(paths[i]);
+                });
+            }
+
             // Hoa li ti ở xa
             const nd = Math.round(w * (d.dots || 0) * (isMobile ? 1.4 : 1));
             for (let i = 0; i < nd; i++) {
@@ -699,32 +726,6 @@
                 g.stroke();
             }
 
-            // Cụm cây trên sườn đồi
-            if (d.trees) {
-                const dark = mix(top, [10, 16, 12], 0.35 + 0.25 * (1 - L));
-                const lit = mix(dark, pal.rim, 0.15 + 0.3 * L);
-                const baseSize = d.trees === 1 ? H * 0.018 : H * 0.034;
-                const clusters = Math.round(w / (d.trees === 1 ? 170 : 300));
-                const trees = [];
-                for (let k = 0; k < clusters; k++) {
-                    const cx = rand(0, w);
-                    const n = Math.floor(d.trees === 1 ? rand(3, 11) : rand(1, 6));
-                    const spread = baseSize * rand(1.2, 3);
-                    for (let i = 0; i < n; i++) {
-                        trees.push({
-                            x: cx + gauss() * spread,
-                            size: baseSize * rand(0.65, 1.3),
-                            pine: rng() < 0.35,
-                            seed: rng()
-                        });
-                    }
-                }
-                trees.sort((a, b) => a.size - b.size);
-                for (const t of trees) {
-                    drawTree(g, t.x, yAt(t.x) + t.size * 0.18, t.size, t.pine, t.seed, dark, lit, lightDir);
-                }
-            }
-
             return { canvas: c, depth: d.depth, margin: m, h: hh };
         });
 
@@ -736,53 +737,6 @@
         shade.addColorStop(1, rgba(pal.shade, 0.95));
         g.fillStyle = shade;
         g.fillRect(0, H * 0.72, W + near.margin * 2, H * 0.28 + near.margin);
-    }
-
-    // Cây xa: tán tròn nhiều cụm hoặc cây thông nhiều tầng, sáng ở phía mặt trời
-    function drawTree(g, x, y, s, pine, seed, dark, lit, dir) {
-        const r = mulberry32(Math.floor(seed * 1e9));
-        g.fillStyle = rgba(dark, 1);
-        if (pine) {
-            const h = s * 1.6, wd = s * 0.42;
-            g.fillRect(x - s * 0.04, y - s * 0.25, s * 0.08, s * 0.3);
-            for (let i = 0; i < 3; i++) {
-                const ty = y - s * 0.15 - i * h * 0.24;
-                const tw = wd * (1 - i * 0.22);
-                g.beginPath();
-                g.moveTo(x - tw, ty);
-                g.lineTo(x, ty - h * 0.42);
-                g.lineTo(x + tw, ty);
-                g.closePath();
-                g.fill();
-            }
-            g.fillStyle = rgba(lit, 0.45);
-            g.beginPath();
-            g.moveTo(x, y - s * 0.15 - h * 0.9);
-            g.lineTo(x + dir * wd, y - s * 0.15);
-            g.lineTo(x, y - s * 0.15);
-            g.closePath();
-            g.fill();
-            return;
-        }
-        g.fillRect(x - s * 0.05, y - s * 0.5, s * 0.1, s * 0.55);
-        const cy = y - s * 0.8;
-        const blobs = [];
-        for (let i = 0; i < 5; i++) {
-            const a = r() * Math.PI * 2;
-            const d = r() * s * 0.22;
-            blobs.push([x + Math.cos(a) * d, cy + Math.sin(a) * d * 0.8, s * (0.24 + r() * 0.16)]);
-        }
-        for (const [bx, by, br] of blobs) {
-            g.beginPath();
-            g.arc(bx, by, br, 0, Math.PI * 2);
-            g.fill();
-        }
-        g.fillStyle = rgba(lit, 0.55);
-        for (const [bx, by, br] of blobs) {
-            g.beginPath();
-            g.arc(bx + dir * br * 0.3, by - br * 0.3, br * 0.55, 0, Math.PI * 2);
-            g.fill();
-        }
     }
 
     function initStars() {
@@ -1748,6 +1702,12 @@
                 ctx = canvas.getContext('2d');
                 setSize(m);
                 startLoop();
+                break;
+            case 'hour':
+                // Chỉnh giờ từ nút đồng hồ: số giờ cố định, hoặc null để theo giờ thật
+                fixedHour = typeof m.hour === 'number' ? m.hour : null;
+                palTimer = 0;
+                if (ctx) applyPalette(true);
                 break;
             case 'resize':
                 if (ctx) setSize(m);
