@@ -31,6 +31,23 @@
     const grassPts = new Float32Array(32);
 
     const FLOWER_COLORS = ['#ffffff', '#fff4e0', '#ffd6e4', '#ffb3c8', '#c9dcff', '#e8d6ff', '#ffe3a8'];
+    // Các loài hoa trên cánh đồng: [loài, bảng màu, tỉ lệ xuất hiện]
+    const FLOWER_TYPES = [
+        ['tulip', FLOWER_COLORS, 3],
+        ['daisy', ['#ffffff', '#ffffff', '#fff4c2', '#ffd1e1', '#cfe0ff'], 4],
+        ['poppy', ['#ff6b6b', '#ff8c5a', '#ff9ec4', '#ffcf5a'], 2.5],
+        ['lavender', ['#b79cff', '#9f8cff', '#d1a6ff'], 2],
+        ['breath', ['#ffffff', '#fff6fb'], 1.5]
+    ];
+    const FLOWER_WEIGHT = FLOWER_TYPES.reduce((a, t) => a + t[2], 0);
+    // Màu các mảng hoa lớn nhìn từ xa trên sườn đồi
+    const DRIFT_COLORS = ['#ff9ec4', '#ffd36b', '#b79cff', '#ffffff', '#ff8c5a', '#ffc2d6', '#cfe0ff'];
+
+    function pickFlowerType() {
+        let r = rng() * FLOWER_WEIGHT;
+        for (const t of FLOWER_TYPES) { if ((r -= t[2]) <= 0) return t; }
+        return FLOWER_TYPES[0];
+    }
     const SPARK_COLORS = ['#ffffff', '#ffd6e4', '#ffb3c8', '#c9dcff', '#ffe3a8', '#e8d6ff'];
     const PETAL_COLORS = ['#ffc2d6', '#ffd9e6', '#ffb0c8', '#fff0f5'];
 
@@ -105,46 +122,146 @@
 
     const FU = 16, FPAD = 8, FRES = 2;
     const flowerCache = {};
-    function flowerSprite(color) {
-        if (flowerCache[color]) return flowerCache[color];
+    function flowerSprite(type, color) {
+        const key = type + color;
+        if (flowerCache[key]) return flowerCache[key];
         const w = FU * 3.2 + FPAD * 2, h = FU * 2.4 + FPAD * 2;
         const ax = w / 2, ay = FPAD + FU * 2.2;
         const c = makeCanvas(w * FRES, h * FRES);
         const g = c.getContext('2d');
         g.scale(FRES, FRES);
         g.translate(ax, ay);
-
         g.shadowColor = color;
-        g.shadowBlur = 7;
-        g.fillStyle = color;
-        tulipPath(g, FU);
-        g.fill();
-        g.shadowBlur = 0;
-
-        // Đổ bóng nhẹ ở gốc cánh cho có khối
-        const shade = g.createLinearGradient(0, 0, 0, -FU * 2.2);
-        shade.addColorStop(0, 'rgba(90, 20, 60, 0.4)');
-        shade.addColorStop(0.55, 'rgba(255, 255, 255, 0)');
-        g.fillStyle = shade;
-        tulipPath(g, FU);
-        g.fill();
-
-        g.globalAlpha = 0.25;
-        g.strokeStyle = 'rgb(120, 40, 80)';
-        g.lineWidth = 0.8;
-        g.beginPath();
-        g.moveTo(0, -FU * 0.3);
-        g.lineTo(0, -FU * 1.9);
-        g.stroke();
-
-        g.globalAlpha = 0.45;
-        g.fillStyle = '#ffffff';
-        g.beginPath();
-        g.ellipse(-FU * 0.4, -FU * 1.3, FU * 0.2, FU * 0.48, -0.3, 0, Math.PI * 2);
-        g.fill();
-
-        return (flowerCache[color] = { canvas: c, w, h, ax, ay });
+        g.shadowBlur = 6;
+        DRAW_FLOWER[type](g, color);
+        return (flowerCache[key] = { canvas: c, w, h, ax, ay });
     }
+
+    // Mỗi hàm vẽ một bông hoa với gốc cuống ở (0, 0), cao tối đa khoảng 2.2 * FU
+    const DRAW_FLOWER = {
+        tulip(g, color) {
+            g.fillStyle = color;
+            tulipPath(g, FU);
+            g.fill();
+            g.shadowBlur = 0;
+            const shade = g.createLinearGradient(0, 0, 0, -FU * 2.2);
+            shade.addColorStop(0, 'rgba(90, 20, 60, 0.4)');
+            shade.addColorStop(0.55, 'rgba(255, 255, 255, 0)');
+            g.fillStyle = shade;
+            tulipPath(g, FU);
+            g.fill();
+            g.globalAlpha = 0.25;
+            g.strokeStyle = 'rgb(120, 40, 80)';
+            g.lineWidth = 0.8;
+            g.beginPath();
+            g.moveTo(0, -FU * 0.3);
+            g.lineTo(0, -FU * 1.9);
+            g.stroke();
+            g.globalAlpha = 0.45;
+            g.fillStyle = '#ffffff';
+            g.beginPath();
+            g.ellipse(-FU * 0.4, -FU * 1.3, FU * 0.2, FU * 0.48, -0.3, 0, Math.PI * 2);
+            g.fill();
+        },
+
+        // Hoa cúc nhìn hơi nghiêng: vòng cánh dẹt, nhụy vàng
+        daisy(g, color) {
+            const cy = -FU * 1.2, n = 13;
+            g.fillStyle = color;
+            for (let i = 0; i < n; i++) {
+                const a = (i / n) * Math.PI * 2;
+                g.save();
+                g.translate(0, cy);
+                g.scale(1, 0.62);
+                g.rotate(a);
+                g.beginPath();
+                g.ellipse(FU * 0.62, 0, FU * 0.52, FU * 0.15, 0, 0, Math.PI * 2);
+                g.fill();
+                g.restore();
+            }
+            g.shadowBlur = 0;
+            g.fillStyle = 'rgba(120, 90, 140, 0.18)';
+            g.beginPath();
+            g.ellipse(0, cy + FU * 0.12, FU * 0.95, FU * 0.4, 0, 0, Math.PI);
+            g.fill();
+            const disk = g.createRadialGradient(-FU * 0.08, cy - FU * 0.08, 0, 0, cy, FU * 0.32);
+            disk.addColorStop(0, '#fff2a0');
+            disk.addColorStop(0.6, '#ffc93a');
+            disk.addColorStop(1, '#d98a1a');
+            g.fillStyle = disk;
+            g.beginPath();
+            g.ellipse(0, cy, FU * 0.32, FU * 0.24, 0, 0, Math.PI * 2);
+            g.fill();
+        },
+
+        // Anh túc: bốn cánh to mỏng như lụa, tâm sẫm
+        poppy(g, color) {
+            const cy = -FU * 1.15;
+            g.fillStyle = color;
+            for (const [dx, dy, r] of [[-0.45, 0.05, 0.62], [0.45, 0.05, 0.62], [-0.2, -0.35, 0.58], [0.25, -0.3, 0.58]]) {
+                g.beginPath();
+                g.arc(dx * FU, cy + dy * FU, r * FU, 0, Math.PI * 2);
+                g.fill();
+            }
+            g.shadowBlur = 0;
+            const shade = g.createRadialGradient(0, cy, FU * 0.1, 0, cy, FU * 1.1);
+            shade.addColorStop(0, 'rgba(80, 10, 30, 0.35)');
+            shade.addColorStop(0.5, 'rgba(80, 10, 30, 0)');
+            shade.addColorStop(1, 'rgba(255, 255, 255, 0.15)');
+            g.globalCompositeOperation = 'source-atop';
+            g.fillStyle = shade;
+            g.fillRect(-FU * 1.3, cy - FU * 1.2, FU * 2.6, FU * 2.2);
+            g.globalCompositeOperation = 'source-over';
+            g.fillStyle = '#2a1420';
+            g.beginPath();
+            g.arc(0, cy - FU * 0.05, FU * 0.2, 0, Math.PI * 2);
+            g.fill();
+            g.globalAlpha = 0.5;
+            g.fillStyle = '#ffffff';
+            g.beginPath();
+            g.ellipse(-FU * 0.5, cy - FU * 0.3, FU * 0.15, FU * 0.3, -0.5, 0, Math.PI * 2);
+            g.fill();
+        },
+
+        // Oải hương: bông dài gồm nhiều nụ nhỏ xếp dọc
+        lavender(g, color) {
+            g.shadowBlur = 3;
+            const base = hex(color);
+            for (let i = 0; i < 11; i++) {
+                const t = i / 10;
+                const y = -FU * (0.3 + t * 1.85);
+                const r = FU * (0.24 - t * 0.12);
+                for (const side of [-1, 1]) {
+                    g.fillStyle = rgba(mix(base, [255, 255, 255], (i % 3) * 0.12), 1);
+                    g.beginPath();
+                    g.ellipse(side * r * 0.7, y, r, r * 1.3, side * 0.4, 0, Math.PI * 2);
+                    g.fill();
+                }
+            }
+        },
+
+        // Hoa baby: chùm chấm trắng li ti trên các nhánh mảnh
+        breath(g, color) {
+            g.shadowBlur = 4;
+            g.strokeStyle = 'rgba(120, 150, 110, 0.7)';
+            g.lineWidth = 0.6;
+            const pts = [];
+            for (let i = 0; i < 14; i++) {
+                const a = -Math.PI / 2 + ((i / 13) - 0.5) * 2.2;
+                const d = FU * (0.9 + (i % 4) * 0.3);
+                pts.push([Math.cos(a) * d * 0.8, -FU * 0.5 + Math.sin(a) * d]);
+            }
+            g.beginPath();
+            for (const [x, y] of pts) { g.moveTo(0, -FU * 0.4); g.lineTo(x, y); }
+            g.stroke();
+            g.fillStyle = color;
+            for (const [x, y] of pts) {
+                g.beginPath();
+                g.arc(x, y, FU * 0.16, 0, Math.PI * 2);
+                g.fill();
+            }
+        }
+    };
 
     const petalCache = {};
     function petalSprite(color) {
@@ -562,9 +679,9 @@
     function buildHillLayers() {
         const defs = [
             { mountain: true, base: 0.585, rim: 0.25, depth: 0.12 },
-            { base: 0.60, dip: 0.04, amps: [0.03, 0.012, 0.006], rim: 0.45, depth: 0.25, meadow: 3, dots: 0.25, tufts: 1.4 },
-            { base: 0.69, amps: [0.04, 0.02, 0.008], rim: 0.3, depth: 0.55, meadow: 5, dots: 0.7, tufts: 2.6 },
-            { base: 0.79, amps: [0.03, 0.018, 0.01], rim: 0.18, depth: 0.85, meadow: 6, dots: 0.9, tufts: 4 }
+            { base: 0.60, dip: 0.04, amps: [0.03, 0.012, 0.006], rim: 0.45, depth: 0.25, meadow: 3, dots: 0.5, tufts: 1.4 },
+            { base: 0.69, amps: [0.04, 0.02, 0.008], rim: 0.3, depth: 0.55, meadow: 5, dots: 0.9, tufts: 2.6 },
+            { base: 0.79, amps: [0.03, 0.018, 0.01], rim: 0.18, depth: 0.85, meadow: 6, dots: 1.1, tufts: 4 }
         ];
         const rimX = Math.min(0.85, Math.max(0.15, pal.bx));
         const m = PARALLAX * 2;
@@ -682,15 +799,70 @@
                 });
             }
 
-            // Hoa li ti ở xa
-            const nd = Math.round(w * (d.dots || 0) * (isMobile ? 1.4 : 1));
-            for (let i = 0; i < nd; i++) {
-                const x = rand(0, w);
-                const y = yAt(x) + Math.pow(rng(), 1.6) * 0.16 * H + 2;
-                const col = mix(hex(pick(FLOWER_COLORS)), top, 0.85 - 0.6 * L);
-                const sz = rand(0.6, 1.4) * (0.6 + d.depth);
-                g.fillStyle = rgba(col, rand(0.4, 0.8));
-                g.fillRect(x, y, sz, sz);
+            // Cánh đồng hoa phủ sườn đồi: các vạt màu lớn, rồi đến hàng nghìn bông nhỏ
+            // tập trung trong vạt; xa thì li ti, gần chân đồi to dần.
+            if (d.dots) {
+                const fade = 0.85 - 0.6 * L;
+                const drifts = [];
+                const nDrift = Math.round(w / (d.depth > 0.5 ? 95 : 130));
+                const span = Math.max(W, 800);
+                for (let i = 0; i < nDrift; i++) {
+                    const x = rand(0, w);
+                    drifts.push({
+                        x,
+                        y: yAt(x) + rand(0.01, 0.13) * H,
+                        rx: rand(0.07, 0.2) * span,
+                        ry: rand(0.015, 0.04) * H * (0.6 + d.depth),
+                        color: hex(pick(DRIFT_COLORS))
+                    });
+                }
+                for (const dr of drifts) {
+                    const col = mix(dr.color, top, fade);
+                    const dg = g.createRadialGradient(dr.x, dr.y, 0, dr.x, dr.y, dr.rx);
+                    dg.addColorStop(0, rgba(col, 0.45 * (0.35 + 0.65 * L)));
+                    dg.addColorStop(0.6, rgba(col, 0.2 * (0.35 + 0.65 * L)));
+                    dg.addColorStop(1, rgba(col, 0));
+                    g.fillStyle = dg;
+                    g.save();
+                    g.translate(dr.x, dr.y);
+                    g.scale(1, dr.ry / dr.rx);
+                    g.translate(-dr.x, -dr.y);
+                    g.fillRect(dr.x - dr.rx, dr.y - dr.rx, dr.rx * 2, dr.rx * 2);
+                    g.restore();
+                }
+
+                const nd = Math.round(w * d.dots * 10);
+                const byColor = new Map();
+                for (let i = 0; i < nd; i++) {
+                    let x, y, color;
+                    if (rng() < 0.7) {
+                        const dr = drifts[Math.floor(rng() * drifts.length)];
+                        x = dr.x + gauss() * dr.rx * 0.75;
+                        y = Math.max(yAt(x) + 1, dr.y + gauss() * dr.ry * 1.4);
+                        color = rng() < 0.85 ? dr.color : hex(pick(DRIFT_COLORS));
+                    } else {
+                        x = rand(0, w);
+                        y = yAt(x) + Math.pow(rng(), 1.4) * 0.18 * H + 1;
+                        color = hex(pick(DRIFT_COLORS));
+                    }
+                    const dy = Math.max(0, y - yAt(x));
+                    const r = (0.45 + dy * 0.018) * (0.5 + d.depth) * rand(0.7, 1.25);
+                    const key = color.join(',');
+                    if (!byColor.has(key)) byColor.set(key, { color, path: new Path2D(), hi: new Path2D() });
+                    const b = byColor.get(key);
+                    b.path.moveTo(x + r, y);
+                    b.path.arc(x, y, r, 0, Math.PI * 2);
+                    if (r > 1.1) {
+                        b.hi.moveTo(x - r * 0.2 + r * 0.35, y - r * 0.25);
+                        b.hi.arc(x - r * 0.2, y - r * 0.25, r * 0.35, 0, Math.PI * 2);
+                    }
+                }
+                for (const { color, path, hi } of byColor.values()) {
+                    g.fillStyle = rgba(mix(color, top, fade * 0.9), 0.85);
+                    g.fill(path);
+                    g.fillStyle = rgba([255, 255, 255], 0.35 * L);
+                    g.fill(hi);
+                }
             }
 
             // Sương mờ ở chân đồi
@@ -960,6 +1132,14 @@
 
         const n = Math.floor(W * (isMobile ? 1.8 : 1.2) * quality);
         const m = PARALLAX * 2;
+
+        // Chia cánh đồng thành các vạt, mỗi vạt có một loài hoa và màu chủ đạo
+        const zoneW = isMobile ? 140 : 220;
+        const zones = [];
+        for (let x = -m - 200; x < W + m + 200; x += zoneW) {
+            const type = pickFlowerType();
+            zones.push({ type, color: pick(type[1]) });
+        }
         for (let i = 0; i < n; i++) {
             const layer = Math.random();
             const bi = Math.min(NB - 1, Math.floor(layer * NB));
@@ -977,14 +1157,18 @@
                 tx: 0, ty: 0, wind: 0
             };
             grassBuckets[bi].blades.push(blade);
-            if (bi >= STATIC_BUCKETS && Math.random() > 0.55) {
-                const color = pick(FLOWER_COLORS);
+            if (bi >= STATIC_BUCKETS && Math.random() > 0.32) {
+                // 60% hoa theo loài chủ đạo của mảng đất đó để tạo thành từng vạt hoa
+                const zone = zones[Math.floor((blade.x + m + Math.sin(blade.x * 0.004) * 90) / zoneW)] || zones[0];
+                const inZone = Math.random() < 0.6;
+                const [type, colors] = inZone ? zone.type : pickFlowerType();
+                const color = inZone && Math.random() < 0.7 ? zone.color : pick(colors);
                 grassBuckets[bi].flowers.push({
                     blade,
                     color,
-                    sprite: flowerSprite(color),
-                    size: layer * 2.6 + rand(2, 5),
-                    alpha: 0.6 + layer * 0.4
+                    sprite: flowerSprite(type, color),
+                    size: (layer * 2.6 + rand(2, 5)) * (type === 'lavender' ? 1.2 : type === 'poppy' ? 1.1 : 1),
+                    alpha: 0.65 + layer * 0.35
                 });
             }
         }
@@ -1538,7 +1722,7 @@
 
     function initButterflies() {
         butterflies = [];
-        const n = isMobile ? 5 : 9;
+        const n = isMobile ? 7 : 14;
         for (let i = 0; i < n; i++) {
             butterflies.push({
                 x: Math.random() * W,
