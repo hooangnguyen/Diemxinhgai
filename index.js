@@ -78,6 +78,7 @@ document.addEventListener('visibilitychange', () => {
 
 let lastTrail = 0;
 window.addEventListener('pointermove', e => {
+    if (e.target.closest && e.target.closest('#controls')) return;
     if (e.pointerType === 'mouse') {
         send({
             type: 'pointer',
@@ -102,6 +103,82 @@ window.addEventListener('deviceorientation', e => {
     });
 });
 
+// ---------- Đồng hồ: chỉnh giờ của cảnh ----------
+
+const controls = document.getElementById('controls');
+const clockBtn = document.getElementById('clock-toggle');
+const timePanel = document.getElementById('time-panel');
+const timeRange = document.getElementById('time-range');
+const timeLabel = document.getElementById('time-label');
+const timeAuto = document.getElementById('time-auto');
+let manualHour = hour;
+
+const realHour = () => {
+    const d = new Date();
+    return d.getHours() + d.getMinutes() / 60;
+};
+
+function formatHour(h) {
+    const m = Math.round(h * 60) % 1440;
+    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+function refreshClock() {
+    const h = manualHour === null ? realHour() : manualHour;
+    timeRange.value = h;
+    timeLabel.textContent = formatHour(h);
+    timeAuto.classList.toggle('active', manualHour === null);
+    clockBtn.classList.toggle('manual', manualHour !== null);
+}
+
+// Ghi giờ đang chọn lên link để có thể gửi cho người khác
+function updateUrl() {
+    const params = new URLSearchParams(location.search);
+    params.delete('gio');
+    let query = params.toString();
+    if (manualHour !== null) query = (query ? query + '&' : '') + 'gio=' + formatHour(manualHour);
+    history.replaceState(null, '', location.pathname + (query ? '?' + query : '') + location.hash);
+}
+
+// Kéo thanh trượt gửi liên tục, nên giới hạn tần suất dựng lại cảnh
+let lastHourSend = 0, hourTimer;
+function sendHour() {
+    clearTimeout(hourTimer);
+    const go = () => {
+        lastHourSend = performance.now();
+        send({ type: 'hour', hour: manualHour });
+    };
+    if (performance.now() - lastHourSend > 150) go();
+    else hourTimer = setTimeout(go, 150);
+}
+
+function setPanel(open) {
+    timePanel.hidden = !open;
+    clockBtn.setAttribute('aria-expanded', String(open));
+    if (open) refreshClock();
+}
+
+// Bấm vào cụm nút không tạo hiệu ứng chạm lên cảnh
+controls.addEventListener('pointerdown', e => e.stopPropagation());
+clockBtn.addEventListener('click', () => setPanel(timePanel.hidden));
+
+timeRange.addEventListener('input', () => {
+    manualHour = Number(timeRange.value) % 24;
+    refreshClock();
+    sendHour();
+    updateUrl();
+});
+
+timeAuto.addEventListener('click', () => {
+    manualHour = null;
+    refreshClock();
+    sendHour();
+    updateUrl();
+});
+
+setInterval(() => { if (manualHour === null && !timePanel.hidden) refreshClock(); }, 30000);
+refreshClock();
+
 // ---------- Nhạc nền ----------
 
 const music = document.getElementById('bg-music');
@@ -113,7 +190,6 @@ function playMusic() {
     if (p) p.then(() => musicBtn.classList.add('playing')).catch(() => {});
 }
 
-musicBtn.addEventListener('pointerdown', e => e.stopPropagation());
 musicBtn.addEventListener('click', e => {
     e.stopPropagation();
     if (music.paused) {
@@ -127,6 +203,7 @@ musicBtn.addEventListener('click', e => {
 });
 
 window.addEventListener('pointerdown', e => {
+    if (!timePanel.hidden) setPanel(false);
     if (!userMuted && music.paused) playMusic();
     send({ type: 'tap', x: e.clientX, y: e.clientY });
 });

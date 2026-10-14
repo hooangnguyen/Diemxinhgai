@@ -46,11 +46,18 @@ body {
     }
 }
 
-/* Nút nhạc dạng biểu tượng, kính mờ */
-.music-btn {
+/* Cụm nút góc phải dưới: đồng hồ + nhạc, dạng kính mờ */
+.controls {
     position: fixed;
     right: 20px;
     bottom: 20px;
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    z-index: 10;
+}
+
+.round-btn {
     width: 46px;
     height: 46px;
     padding: 0;
@@ -66,16 +73,18 @@ body {
     cursor: pointer;
     opacity: 0.7;
     transition: opacity 0.3s, background 0.3s, transform 0.3s;
-    z-index: 10;
 }
 
-.music-btn:hover {
+.round-btn:hover,
+.round-btn[aria-expanded="true"] {
     opacity: 1;
     background: rgba(255, 255, 255, 0.15);
     transform: scale(1.06);
 }
 
-.music-btn svg {
+.round-btn svg,
+.chip svg,
+.time-scale svg {
     width: 20px;
     height: 20px;
     fill: none;
@@ -83,6 +92,136 @@ body {
     stroke-width: 1.8;
     stroke-linecap: round;
     stroke-linejoin: round;
+}
+
+/* Đang xem một giờ cố định: chấm nhỏ trên nút đồng hồ */
+#clock-toggle {
+    position: relative;
+}
+
+#clock-toggle.manual::after {
+    content: "";
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #ffd36b;
+    box-shadow: 0 0 6px #ffd36b;
+}
+
+/* Bảng chỉnh giờ */
+.time-panel {
+    position: absolute;
+    right: 0;
+    bottom: 58px;
+    width: min(300px, calc(100vw - 40px));
+    box-sizing: border-box;
+    padding: 14px 16px 12px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(20, 22, 40, 0.35);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    color: #fff;
+    animation: panelIn 0.25s ease-out;
+}
+
+.time-panel[hidden] {
+    display: none;
+}
+
+@keyframes panelIn {
+    from { opacity: 0; transform: translateY(8px) scale(0.97); }
+}
+
+.time-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.time-label {
+    font: 600 22px/1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+    letter-spacing: 1px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+}
+
+.chip {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.75);
+    cursor: pointer;
+    transition: background 0.3s, color 0.3s;
+}
+
+.chip svg {
+    width: 17px;
+    height: 17px;
+}
+
+/* Đang theo giờ thật */
+.chip.active {
+    background: rgba(255, 211, 107, 0.25);
+    border-color: rgba(255, 211, 107, 0.6);
+    color: #ffe39a;
+}
+
+/* Thanh kéo có màu trời theo từng khung giờ */
+.time-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 10px;
+    margin: 6px 0;
+    border-radius: 6px;
+    background: linear-gradient(to right,
+            #0a1430 0%, #11203f 18.75%, #2c2552 21.9%, #d48a95 26%, #68aaee 37.5%,
+            #4f97e6 62.5%, #cf8a80 69.8%, #d4544e 76%, #4a1a48 81.25%, #11203f 87.5%, #0a1430 100%);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+    outline: none;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.time-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.time-range::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.time-scale {
+    display: flex;
+    justify-content: space-between;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.time-scale svg {
+    width: 14px;
+    height: 14px;
 }
 
 .music-btn .icon-off,
