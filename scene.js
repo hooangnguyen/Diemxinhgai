@@ -1183,13 +1183,13 @@
             if (bi < STATIC_BUCKETS) {
                 b.blades.push({
                     x, layer,
-                    h: H * 0.03 + layer * H * 0.15 + Math.random() * H * 0.04,
+                    h: H * 0.02 + layer * H * 0.09 + Math.random() * H * 0.025,
                     segs: 3 + Math.floor(layer * 2),
                     hj: rand(-12, 12), lj: rand(-1, 1.5), lean: rand(-0.05, 0.05), color: ''
                 });
                 continue;
             }
-            if (Math.random() < 0.24) {
+            if (Math.random() < 0.15) {
                 b.tufts.push({ x, v: Math.floor(Math.random() * TUFT_VARIANTS), stiffness: rand(0.6, 1), sway: rand(0, Math.PI * 2) });
             }
             if (Math.random() < 0.5) {
@@ -1201,7 +1201,7 @@
                 const size = (layer * 2.6 + rand(2, 5)) * (type === 'lavender' ? 1.2 : type === 'poppy' ? 1.1 : 1);
                 b.flowers.push({
                     x, layer, color, size,
-                    h: H * 0.03 + layer * H * 0.15 + Math.random() * H * 0.04,
+                    h: H * 0.035 + layer * H * 0.11 + Math.random() * H * 0.03,
                     stiffness: rand(0.6, 1),
                     sway: rand(0, Math.PI * 2),
                     sprite: flowerSprite(type, color, size),
@@ -1218,9 +1218,9 @@
         const [hue, sat, light, range] = pal.grass;
         const shade = (layer, hj, lj) => `hsl(${hue + hj}, ${sat + layer * 18}%, ${Math.max(0.5, light + layer * range + lj)}%)`;
 
-        // Lớp cỏ xa, chỉ giữ dải sát đáy màn hình (cỏ xa không cao quá ~11% màn hình)
+        // Lớp cỏ xa, chỉ giữ dải sát đáy màn hình (cỏ xa không cao quá ~7% màn hình)
         const m = PARALLAX * 2;
-        grassTop = Math.floor(H * 0.87);
+        grassTop = Math.floor(H * 0.91);
         grassBack = makeCanvas((W + m * 2) * DPR, (H - grassTop) * DPR);
         const g = grassBack.getContext('2d');
         g.scale(DPR, DPR);
@@ -1248,7 +1248,7 @@
     // Một bụi cỏ: vài lá thon mọc sát nhau, gốc chung ở đáy ảnh. Vẽ sẵn LEAN_FRAMES khung,
     // mỗi khung uốn cong theo một độ nghiêng; ảnh cắt sát các lá để không in phần trong suốt thừa.
     function buildTuft(b, shade) {
-        const nb = Math.floor(rand(3, 6));
+        const nb = Math.floor(rand(2, 5));
         const spread = 2 + b.layer * 5;
         const hw0 = b.hw;
         const blades = [];
@@ -1256,7 +1256,7 @@
             const layer = Math.min(1, Math.max(0, b.layer + rand(-0.06, 0.06)));
             blades.push({
                 dx: gauss() * spread,
-                h: H * 0.03 + layer * H * 0.15 + rng() * H * 0.04,
+                h: H * 0.02 + layer * H * 0.09 + rng() * H * 0.025,
                 lean: rand(-0.1, 0.1),
                 color: shade(layer, rand(-12, 12), rand(-1, 1.5))
             });
