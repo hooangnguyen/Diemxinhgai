@@ -678,11 +678,107 @@
         seeded(seeds.hills, buildHillLayers);
     }
 
+    // Nhiễu 1 chiều mượt (value noise) theo rng hiện tại
+    function valueNoise() {
+        const n = 256, v = [];
+        for (let i = 0; i < n; i++) v.push(rng());
+        return x => {
+            const i = Math.floor(x), f = x - i, t = f * f * (3 - 2 * f);
+            const a = v[((i % n) + n) % n], b = v[(((i + 1) % n) + n) % n];
+            return a + (b - a) * t;
+        };
+    }
+
+    // Vẽ một dãy núi: thân núi nhạt dần xuống chân, mặt sườn sáng/tối theo hướng mặt trời,
+    // tuyết trên các đỉnh cao, sương phủ chân núi và viền sáng mảnh trên sống núi.
+    function drawMountain(g, d, w, hh, path, yAt, heightAt, minY, topC, bottom, rock, L) {
+        const baseY = d.base * H;
+        const grad = g.createLinearGradient(0, minY, 0, baseY + H * 0.02);
+        grad.addColorStop(0, rgba(topC, 1));
+        grad.addColorStop(1, rgba(bottom, 1));
+        g.fillStyle = grad;
+        g.fill(path);
+
+        g.save();
+        g.clip(path);
+
+        // Mặt sườn: sườn hướng về mặt trời sáng lên, sườn khuất tối đi. Độ dốc lấy trung bình
+        // trên một đoạn dài để thành từng mảng lớn; vẽ vào lớp riêng rồi làm mềm một lần.
+        const sunDir = pal.bx < 0.5 ? -1 : 1;
+        const lit = mix(topC, pal.rim, 0.25 + 0.3 * L);
+        const dark = mix(rock, [10, 14, 30], 0.35);
+        const SR = 0.5;
+        const sc = makeCanvas(w * SR, (hh - minY) * SR);
+        const sg = sc.getContext('2d');
+        sg.scale(SR, SR);
+        sg.translate(0, -minY);
+        const win = d.feature * 0.06;
+        for (let x = 0; x <= w; x += 3) {
+            const slope = (yAt(x + win) - yAt(x - win)) / (2 * win);
+            const k = Math.max(-1, Math.min(1, slope * sunDir * 2.2));
+            if (Math.abs(k) < 0.04) continue;
+            const y = yAt(x);
+            sg.fillStyle = k > 0 ? rgba(lit, 0.38 * k * (0.5 + 0.5 * L)) : rgba(dark, -0.3 * k * (1 - d.haze * 0.45));
+            sg.fillRect(x - 0.5, y, 4, (baseY - y) * 0.85);
+        }
+        // Mảng sáng tối đậm ở sống núi, nhạt dần xuống chân
+        sg.globalCompositeOperation = 'destination-in';
+        const fade = sg.createLinearGradient(0, minY, 0, baseY);
+        fade.addColorStop(0, 'rgba(0,0,0,1)');
+        fade.addColorStop(1, 'rgba(0,0,0,0.1)');
+        sg.fillStyle = fade;
+        sg.fillRect(0, minY, w, hh - minY);
+        g.filter = `blur(${Math.max(4, Math.round(d.feature / 25))}px)`;
+        g.drawImage(sc, 0, minY, w, hh - minY);
+        g.filter = 'none';
+
+        // Tuyết trên các đỉnh cao: trắng ban ngày, ửng hồng lúc hoàng hôn, xanh bạc dưới trăng
+        if (d.snow) {
+            const snowLine = H * d.peak * 0.55;
+            const snow = mix(mix([248, 250, 255], pal.rim, 0.3), topC, 0.25 + 0.35 * (1 - L));
+            const snowShade = mix(snow, rock, 0.35);
+            for (let x = 0; x <= w; x += 2) {
+                const hgt = heightAt(x);
+                if (hgt < snowLine) continue;
+                const y = yAt(x);
+                const depth = (hgt - snowLine) * 0.55 + Math.sin(x * 0.21) * 2 + Math.sin(x * 0.057) * 3;
+                if (depth <= 0) continue;
+                // Độ dốc lấy trung bình như phần sườn để mặt tuyết sáng/tối thành từng mảng liền
+                const slope = (yAt(x + win) - yAt(x - win)) / (2 * win);
+                const k = Math.max(0, Math.min(1, 0.5 + slope * sunDir * 3));
+                g.fillStyle = rgba(mix(snowShade, snow, k), (0.4 + 0.55 * L) * Math.min(1, depth / 6));
+                g.fillRect(x, y, 2.2, depth);
+            }
+        }
+
+        // Sương dày ở chân núi, hoà vào đường chân trời
+        const mist = g.createLinearGradient(0, baseY - H * d.peak * 0.6, 0, baseY + H * 0.02);
+        mist.addColorStop(0, rgba(mix(pal.sky[6], pal.mist, 0.3), 0));
+        mist.addColorStop(1, rgba(mix(pal.sky[6], pal.mist, 0.3), 0.08 + 0.3 * d.haze * L * L));
+        g.fillStyle = mist;
+        g.fillRect(0, baseY - H * d.peak * 0.6, w, H * d.peak * 0.6 + H * 0.05);
+        g.restore();
+
+        // Viền sáng mảnh trên sống núi
+        const ridge = new Path2D();
+        for (let x = 0; x <= w; x += 3) x === 0 ? ridge.moveTo(x, yAt(x)) : ridge.lineTo(x, yAt(x));
+        const rx = Math.min(0.85, Math.max(0.15, pal.bx));
+        const rim = g.createLinearGradient(0, 0, w, 0);
+        rim.addColorStop(0, rgba(pal.rim, 0.05));
+        rim.addColorStop(rx, rgba(pal.rim, Math.min(0.6, d.rim * pal.rimA)));
+        rim.addColorStop(1, rgba(pal.rim, 0.05));
+        g.strokeStyle = rim;
+        g.lineWidth = 1;
+        g.stroke(ridge);
+    }
+
     // Mọi lệnh rng() ở đây chạy theo cùng thứ tự bất kể bảng màu, để khi dựng lại
     // theo giờ thì hình dáng đồi, cây, hoa vẫn y nguyên, chỉ đổi màu.
     function buildHillLayers() {
         const defs = [
-            { mountain: true, base: 0.585, rim: 0.25, depth: 0.12 },
+            // Hai dãy núi xa: dãy sau cao, mờ sương và có tuyết; dãy trước thấp, đậm hơn
+            { mountain: true, base: 0.575, peak: 0.17, feature: 300, haze: 0.75, snow: 1, rim: 0.2, depth: 0.08 },
+            { mountain: true, base: 0.6, peak: 0.085, feature: 190, haze: 0.45, snow: 0, rim: 0.25, depth: 0.15 },
             { base: 0.60, dip: 0.04, amps: [0.03, 0.012, 0.006], rim: 0.45, depth: 0.25, meadow: 3, dots: 0.5, tufts: 1.4 },
             { base: 0.69, amps: [0.04, 0.02, 0.008], rim: 0.3, depth: 0.55, meadow: 5, dots: 0.9, tufts: 2.6 },
             { base: 0.79, amps: [0.03, 0.018, 0.01], rim: 0.18, depth: 0.85, meadow: 6, dots: 1.1, tufts: 4 }
@@ -695,24 +791,38 @@
             const w = W + m * 2, hh = H + m;
 
             // Màu lớp: núi xa hoà vào màu trời, các lớp đồi lấy từ bảng màu
-            const li = d.mountain ? 0 : defs.indexOf(d) - 1;
-            // Ban ngày núi nhạt như sương; lúc tối dần thì núi là bóng sẫm, chỉ hơi ám màu trời
-            const haze = mix(pal.sky[4], pal.sky[6], L);
-            const topC = d.mountain ? mix(pal.hills[0][0], haze, 0.15 + 0.35 * L) : pal.hills[li][0];
-            const bottom = d.mountain ? mix(pal.hills[0][1], haze, 0.1 + 0.3 * L) : pal.hills[li][1];
+            const li = defs.indexOf(d) - defs.filter(e => e.mountain).length;
+            // Núi: xanh lam ngả theo màu trời; càng xuống chân càng nhạt vào lớp sương chân trời
+            const haze = mix(pal.sky[5], pal.sky[7], 0.5);
+            // Ban ngày núi xanh lam nhạt vì sương; khi trời tối dần núi thành bóng sẫm trước nền trời
+            const rock = mix(mix(pal.hills[0][1], pal.sky[2], 0.6), [18, 18, 40], 0.12 + 0.4 * (1 - L));
+            const topC = d.mountain ? mix(rock, haze, d.haze * (0.08 + 0.5 * L * L)) : pal.hills[li][0];
+            const bottom = d.mountain ? mix(rock, haze, d.haze * (0.2 + 0.55 * L)) : pal.hills[li][1];
 
             let yAt;
+            let heightAt = null;
             if (d.mountain) {
-                // Núi răng cưa ở hai bên, chừa khoảng giữa cho mặt trời
-                const ph = [rand(0, 6), rand(0, 6), rand(0, 6)];
-                yAt = x => {
+                // Sống núi tự nhiên từ nhiễu fractal: phần đỉnh nhọn (ridged) trộn với phần thoải.
+                // Kích thước nét núi tính theo pixel nên trên màn hình hẹp núi không bị nhọn hoắt.
+                const noise = valueNoise();
+                const off = rand(0, 100);
+                heightAt = x => {
                     const t = x / w;
-                    const ridge = 0.6 * (1 - Math.abs(Math.sin(t * 3 * Math.PI + ph[0])))
-                        + 0.3 * (1 - Math.abs(Math.sin(t * 8 * Math.PI + ph[1])))
-                        + 0.1 * Math.sin(t * 23 * Math.PI + ph[2]);
-                    const env = 1 - Math.exp(-(((t - 0.5) / 0.2) ** 2));
-                    return d.base * H - H * 0.14 * Math.max(0, ridge) * env;
+                    const u = x / d.feature + off;
+                    let f = 0, r = 0, amp = 1, sum = 0;
+                    for (let o = 0; o < 5; o++) {
+                        const n = noise(u * (1 << o));
+                        f += n * amp;
+                        r += (1 - Math.abs(n * 2 - 1)) * amp;
+                        sum += amp;
+                        amp *= 0.5;
+                    }
+                    const shape = Math.pow(0.45 * f / sum + 0.55 * r / sum, 1.6);
+                    // Khoảng giữa thấp xuống để mặt trời lặn vẫn ló ra
+                    const env = 1 - 0.92 * Math.exp(-(((t - 0.5) / 0.12) ** 2));
+                    return H * d.peak * shape * env * 1.6;
                 };
+                yAt = x => d.base * H - heightAt(x);
             } else {
                 const phases = d.amps.map(() => rand(0, Math.PI * 2));
                 const freqs = [rand(1.2, 2), rand(3, 5), rand(8, 12)];
@@ -747,6 +857,11 @@
             for (let x = 0; x <= w; x += 3) path.lineTo(x, yAt(x));
             path.lineTo(w, hh);
             path.closePath();
+
+            if (d.mountain) {
+                drawMountain(g, d, w, hh, path, yAt, heightAt, minY, topC, bottom, rock, L);
+                return { canvas: c, tex: null, depth: d.depth, margin: m, h: hh - top, top };
+            }
 
             const grad = g.createLinearGradient(0, (d.base - 0.06) * H, 0, H);
             grad.addColorStop(0, rgba(topC, 1));
